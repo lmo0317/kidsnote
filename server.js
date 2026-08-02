@@ -364,7 +364,12 @@ app.get('/api/photos/:id/thumb', async (req, res) => {
 });
 
 app.get('/api/photos/download-all', (req, res) => {
-  const photos = readPhotoIndex().filter(photo => fs.existsSync(path.join(PHOTO_FILES_DIR, photo.filename)));
+  const year = String(req.query.year || '').trim();
+  if (year && !/^\d{4}$/.test(year)) return res.status(400).json({ error: '다운로드 연도가 올바르지 않습니다.' });
+  const photos = readPhotoIndex().filter(photo =>
+    fs.existsSync(path.join(PHOTO_FILES_DIR, photo.filename)) &&
+    (!year || String(photo.takenAt || '').startsWith(year))
+  );
   if (!photos.length) return res.status(404).json({ error: '다운로드할 사진이 없습니다.' });
 
   const date = new Date().toISOString().slice(0, 10);
@@ -373,7 +378,7 @@ app.get('/api/photos/download-all', (req, res) => {
 
   res.statusCode = 200;
   res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', `attachment; filename="kidsnote-photos-${date}.zip"`);
+  res.setHeader('Content-Disposition', `attachment; filename="kidsnote-photos-${year || date}.zip"`);
   archive.on('error', error => {
     console.error('Failed to create photo archive:', error.message);
     if (!res.headersSent) res.status(500).json({ error: '사진 압축 파일을 만들지 못했습니다.' });
@@ -389,7 +394,7 @@ app.get('/api/photos/download-all', (req, res) => {
     const count = usedNames.get(baseName) || 0;
     const archiveName = count === 0 ? baseName : `${stem} (${count + 1})${extension}`;
     usedNames.set(baseName, count + 1);
-    archive.file(filePath, { name: archiveName });
+    archive.file(filePath, { name: year ? `${year}/${archiveName}` : archiveName });
   }
 
   archive.finalize();
@@ -953,6 +958,7 @@ async function crawlKidsNotePhotos(session, job, options = {}) {
     for (const item of items) {
       const itemId = getKidsNoteItemId(item);
       const sourceDate = getKidsNoteItemDate(item);
+      if (options.year && !sourceDate.startsWith(options.year)) continue;
       const sourceTitle = getKidsNoteItemTitle(item);
       const sourcePage = itemId && /^\d+$/.test(itemId)
         ? `https://www.kidsnote.com/service/${collection.servicePath}/${itemId}`
@@ -1038,14 +1044,20 @@ app.delete('/api/photo-kidsnote/session', (req, res) => {
 app.post('/api/photos/kidsnote-backup/start', (req, res) => {
   const session = getSavedKidsNoteSession(req);
   if (!session) return res.status(401).json({ error: '저장된 키즈노트 로그인이 없거나 만료되었습니다.' });
+  const year = String(req.body?.year || '').trim();
+  if (!/^\d{4}$/.test(year)) return res.status(400).json({ error: '백업할 연도를 선택해 주세요.' });
   for (const [existingJobId, existingJob] of photoBackupJobs.entries()) {
     if (existingJob.ownerToken === session.token && existingJob.status === 'processing') {
-      return res.status(202).json({ jobId: existingJobId, status: existingJob.status, reused: true });
+      if (existingJob.year === year) {
+        return res.status(202).json({ jobId: existingJobId, status: existingJob.status, reused: true });
+      }
+      return res.status(409).json({ error: `${existingJob.year}년 사진 백업이 이미 진행 중입니다.` });
     }
   }
   const jobId = crypto.randomBytes(24).toString('base64url');
   const job = {
     ownerToken: session.token,
+    year,
     status: 'processing',
     createdAt: Date.now(),
     progress: { pagesVisited: 0, found: 0, processed: 0, saved: 0, skipped: 0, failed: 0, currentPage: '', currentImage: '' },
@@ -1055,7 +1067,7 @@ app.post('/api/photos/kidsnote-backup/start', (req, res) => {
   photoBackupJobs.set(jobId, job);
   setImmediate(async () => {
     try {
-      job.result = await crawlKidsNotePhotos(session, job);
+      job.result = await crawlKidsNotePhotos(session, job, { year });
       job.progress = { ...job.progress, ...job.result, currentPage: '', currentImage: '' };
       job.status = 'completed';
     } catch (error) {

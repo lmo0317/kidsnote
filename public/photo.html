@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/lucide@latest"></script>
-  <link rel="stylesheet" href="/photo.css?v=20260724-1">
+  <link rel="stylesheet" href="/photo.css?v=20260802-2">
 </head>
 <body>
   <main class="photo-shell">
@@ -17,7 +17,7 @@
       <div>
         <span class="back-link"><i data-lucide="images"></i><span>KidsNote Photo</span></span>
         <h1>키즈노트 사진 백업</h1>
-        <p>추억알림장과 추억앨범 페이지를 자동으로 돌면서 사진을 서버에 저장합니다.</p>
+        <p>연도를 선택하면 키즈노트 사진을 백업하고 ZIP 파일로 내려받습니다.</p>
       </div>
       <div class="photo-stats">
         <div>
@@ -47,18 +47,16 @@
         </div>
       </div>
 
-      <div class="backup-targets">
-        <div><i data-lucide="notebook-tabs"></i><span>추억알림장</span><small>/service/report</small></div>
-        <div><i data-lucide="images"></i><span>추억앨범</span><small>/service/album</small></div>
+      <div class="backup-guide">
+        <span class="guide-step"><b>1</b> 백업 시작</span>
+        <i data-lucide="chevron-right"></i>
+        <span class="guide-step"><b>2</b> 연도 선택</span>
+        <i data-lucide="chevron-right"></i>
+        <span class="guide-step"><b>3</b> ZIP 다운로드</span>
       </div>
 
-      <label class="extra-url-field" for="extra-url">
-        <span>특정 상세 페이지 추가</span>
-        <input id="extra-url" type="url" placeholder="https://www.kidsnote.com/service/report/1354433618">
-      </label>
-
-      <button id="btn-start-backup" class="btn btn-primary backup-button" type="button" disabled>
-        <i data-lucide="download-cloud"></i><span>키즈노트 사진 전체 백업 시작</span>
+      <button id="btn-start-backup" class="btn btn-primary backup-button" type="button">
+        <i data-lucide="archive-restore"></i><span>사진 백업 시작</span>
       </button>
 
       <div id="progress-panel" class="progress-panel hidden">
@@ -71,34 +69,12 @@
       </div>
     </section>
 
-    <section class="gallery-panel">
-      <div class="gallery-toolbar">
-        <h2>백업된 사진</h2>
-        <div class="gallery-controls">
-          <button id="btn-download-all" class="btn btn-primary" type="button" disabled>
-            <i data-lucide="archive"></i><span>전체 사진 압축 다운로드</span>
-          </button>
-          <select id="sort-select" aria-label="정렬">
-            <option value="sourceDateDesc">글 날짜 최신순</option>
-            <option value="sourceDateAsc">글 날짜 오래된순</option>
-            <option value="uploadedDesc">백업 최신순</option>
-            <option value="uploadedAsc">백업 오래된순</option>
-          </select>
-          <div class="search-box">
-            <i data-lucide="search"></i>
-            <input id="search-input" type="search" placeholder="파일명 또는 출처 검색">
-          </div>
-        </div>
+    <section class="download-summary-panel">
+      <div>
+        <i data-lucide="folder-archive"></i>
+        <span>백업된 사진은 연도별 ZIP 파일로 받을 수 있습니다.</span>
       </div>
-      <div id="year-filter" class="year-filter" aria-label="연도별 사진 보기"></div>
-      <div id="gallery" class="gallery"></div>
-      <button id="btn-load-more" class="btn btn-secondary load-more hidden" type="button">
-        <i data-lucide="chevrons-down"></i><span>더 보기</span>
-      </button>
-      <div id="empty-state" class="empty-state hidden">
-        <i data-lucide="images"></i>
-        <p>아직 백업된 키즈노트 사진이 없습니다.</p>
-      </div>
+      <small>다운로드 위치는 브라우저의 기본 다운로드 폴더입니다.</small>
     </section>
   </main>
 
@@ -138,20 +114,24 @@
     </section>
   </div>
 
-  <div id="photo-viewer" class="photo-viewer hidden" aria-hidden="true">
-    <button id="viewer-close" class="viewer-close" type="button" aria-label="닫기">
+  <div id="year-picker-modal" class="login-modal hidden" aria-hidden="true">
+    <section class="login-dialog year-picker-dialog" role="dialog" aria-modal="true" aria-labelledby="year-picker-title">
+      <button id="year-picker-close" class="login-close" type="button" aria-label="연도 선택 닫기">
       <i data-lucide="x"></i>
-    </button>
-    <div class="viewer-frame" role="dialog" aria-modal="true" aria-label="사진 크게 보기">
-      <img id="viewer-image" alt="">
-      <div class="viewer-caption">
-        <strong id="viewer-title"></strong>
-        <span id="viewer-detail"></span>
+      </button>
+      <div class="login-heading">
+        <span class="login-icon"><i data-lucide="calendar-range"></i></span>
+        <div>
+          <p>Backup year</p>
+          <h2 id="year-picker-title">백업할 연도 선택</h2>
+        </div>
       </div>
-    </div>
+      <p class="login-description">연도를 누르면 해당 연도의 새 사진을 확인한 뒤 ZIP 파일로 다운로드합니다.</p>
+      <div id="year-options" class="year-options"></div>
+    </section>
   </div>
 
   <div id="toast" class="toast"></div>
-  <script src="/photo.js?v=20260724-1"></script>
+  <script src="/photo.js?v=20260802-2"></script>
 </body>
 </html>
