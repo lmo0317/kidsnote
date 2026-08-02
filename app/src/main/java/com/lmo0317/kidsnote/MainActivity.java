@@ -9,6 +9,7 @@ import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.*;
 import android.provider.MediaStore;
+import android.util.LruCache;
 import android.view.*;
 import android.webkit.*;
 import android.widget.*;
@@ -23,7 +24,9 @@ public class MainActivity extends Activity {
   private static final int STORAGE_PERMISSION_REQUEST = 1001;
   private final ExecutorService io = Executors.newFixedThreadPool(4);
   private final ArrayList<Photo> photos = new ArrayList<>();
-  private final HashMap<String, Bitmap> cache = new HashMap<>();
+  private final LruCache<String, Bitmap> thumbnailCache = new LruCache<String, Bitmap>(16 * 1024 * 1024) {
+    @Override protected int sizeOf(String key, Bitmap bitmap) { return bitmap.getByteCount(); }
+  };
   private TextView countText, galleryTitle, loginStatusBadge, loginStatusDetail;
   private ProgressBar progress;
   private GridView gallery;
@@ -104,14 +107,14 @@ public class MainActivity extends Activity {
       openLogin();
       return;
     }
-    setLoading(true, selectedYear() + "년 사진을 불러오는 중");
+    setLoading(true, selectedYear() + "년 사진 목록을 불러오는 중");
     io.execute(() -> {
       try {
         LinkedHashMap<String, Photo> found = new LinkedHashMap<>();
         loadCollection("reports", selectedYear(), found);
         loadCollection("albums", selectedYear(), found);
         runOnUiThread(() -> {
-          photos.clear(); photos.addAll(found.values()); cache.clear();
+          photos.clear(); photos.addAll(found.values()); thumbnailCache.evictAll();
           ((BaseAdapter) gallery.getAdapter()).notifyDataSetChanged();
           galleryTitle.setText(selectedYear() + "년 사진");
           countText.setText(photos.isEmpty() ? "가져온 사진이 없습니다" : photos.size() + "장의 사진 · 눌러서 크게 보기");
@@ -181,15 +184,42 @@ public class MainActivity extends Activity {
     }
   }
 
-  private Bitmap loadBitmap(String url) throws Exception {
-    synchronized (cache) { if (cache.containsKey(url)) return cache.get(url); }
+  private byte[] downloadBytes(String url) throws Exception {
     HttpURLConnection connection = connection(url);
     connection.setRequestProperty("Accept", "image/*");
     try (InputStream input = connection.getInputStream()) {
-      Bitmap bitmap = BitmapFactory.decodeStream(input);
-      synchronized (cache) { cache.put(url, bitmap); }
-      return bitmap;
+      ByteArrayOutputStream output = new ByteArrayOutputStream();
+      byte[] buffer = new byte[16384]; int read;
+      while ((read = input.read(buffer)) >= 0) output.write(buffer, 0, read);
+      return output.toByteArray();
     }
+  }
+
+  private Bitmap decodeImage(byte[] data, int maxDimension) throws IOException {
+    BitmapFactory.Options options = new BitmapFactory.Options();
+    if (maxDimension > 0) {
+      options.inJustDecodeBounds = true;
+      BitmapFactory.decodeByteArray(data, 0, data.length, options);
+      options.inSampleSize = 1;
+      while (Math.max(options.outWidth, options.outHeight) / (options.inSampleSize * 2) >= maxDimension) options.inSampleSize *= 2;
+      options.inJustDecodeBounds = false;
+      options.inPreferredConfig = Bitmap.Config.RGB_565;
+    }
+    Bitmap bitmap = BitmapFactory.decodeByteArray(data, 0, data.length, options);
+    if (bitmap == null) throw new IOException("이미지를 읽을 수 없습니다.");
+    return bitmap;
+  }
+
+  private Bitmap loadThumbnail(String url) throws Exception {
+    Bitmap cached = thumbnailCache.get(url);
+    if (cached != null) return cached;
+    Bitmap bitmap = decodeImage(downloadBytes(url), 320);
+    thumbnailCache.put(url, bitmap);
+    return bitmap;
+  }
+
+  private Bitmap loadOriginal(String url, int maxDimension) throws Exception {
+    return decodeImage(downloadBytes(url), maxDimension);
   }
 
   private void saveAll() {
@@ -205,7 +235,7 @@ public class MainActivity extends Activity {
       int saved = 0;
       for (int i = 0; i < photos.size(); i++) {
         try {
-          Bitmap bitmap = loadBitmap(photos.get(i).url);
+          Bitmap bitmap = loadOriginal(photos.get(i).url, 0);
           String fileName = "kidsnote_" + selectedYear() + "_" + String.format(Locale.US, "%04d", i + 1) + ".jpg";
           if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ContentValues values = new ContentValues();
@@ -227,6 +257,7 @@ public class MainActivity extends Activity {
             MediaScannerConnection.scanFile(this, new String[]{target.getAbsolutePath()}, new String[]{"image/jpeg"}, null);
           }
           saved++;
+          bitmap.recycle();
         } catch (Exception ignored) {}
         int done = i + 1;
         runOnUiThread(() -> progress.setProgress(done));
@@ -242,10 +273,10 @@ public class MainActivity extends Activity {
   private void confirmBackup() {
     if (photos.isEmpty()) return;
     new AlertDialog.Builder(this)
-        .setTitle(selectedYear() + "년 사진을 백업할까요?")
-        .setMessage(photos.size() + "장의 사진을 이 기기의\nPictures/KidsNote/" + selectedYear() + " 폴더에 저장합니다.\n\n갤러리에서 언제든 다시 볼 수 있습니다.")
+        .setTitle(selectedYear() + "년 원본 사진을 저장할까요?")
+        .setMessage("현재 화면의 이미지는 임시 썸네일입니다.\n\n" + photos.size() + "장의 원본을 이 기기의\nPictures/KidsNote/" + selectedYear() + " 폴더에 저장합니다.")
         .setNegativeButton("취소", null)
-        .setPositiveButton("백업 시작", (dialog, which) -> saveAll())
+        .setPositiveButton("원본 저장", (dialog, which) -> saveAll())
         .show();
   }
 
@@ -286,8 +317,11 @@ public class MainActivity extends Activity {
     dialog.show();
     io.execute(() -> {
       try {
-        Bitmap bitmap = loadBitmap(photo.url);
-        runOnUiThread(() -> { loading.setVisibility(View.GONE); full.setImageBitmap(bitmap); });
+        Bitmap bitmap = loadOriginal(photo.url, 2048);
+        runOnUiThread(() -> {
+          loading.setVisibility(View.GONE); full.setImageBitmap(bitmap);
+          dialog.setOnDismissListener(ignored -> { full.setImageDrawable(null); if (!bitmap.isRecycled()) bitmap.recycle(); });
+        });
       } catch (Exception error) {
         runOnUiThread(() -> { dialog.dismiss(); Toast.makeText(this, "사진을 열 수 없습니다.", Toast.LENGTH_SHORT).show(); });
       }
@@ -316,10 +350,12 @@ public class MainActivity extends Activity {
       image.setImageDrawable(null);
       String url = photos.get(position).url;
       image.setOnClickListener(v -> showPhoto(photos.get(position)));
-      io.execute(() -> {
-        try { Bitmap bitmap = loadBitmap(url); runOnUiThread(() -> { if (url.equals(image.getTag())) image.setImageBitmap(bitmap); }); }
-        catch (Exception ignored) {}
-      });
+      Bitmap cached = thumbnailCache.get(url);
+      if (cached != null) image.setImageBitmap(cached);
+      else io.execute(() -> {
+          try { Bitmap bitmap = loadThumbnail(url); runOnUiThread(() -> { if (url.equals(image.getTag())) image.setImageBitmap(bitmap); }); }
+          catch (Exception ignored) {}
+        });
       image.setTag(url);
       return image;
     }
