@@ -41,6 +41,8 @@ public class MainActivity extends Activity {
   private LinearLayout webPanel, emptyState;
   private WebView webView;
   private volatile String childId = "", enrollment = "";
+  private Photo pendingSingleSave;
+  private Button pendingSingleSaveButton;
   private final Handler mainHandler = new Handler(Looper.getMainLooper());
   private boolean sessionChecking = false, pendingLoad = false;
   private volatile int loadGeneration = 0;
@@ -344,6 +346,8 @@ public class MainActivity extends Activity {
 
   private void saveAll() {
     if (photos.isEmpty()) return;
+    pendingSingleSave = null;
+    pendingSingleSaveButton = null;
     if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P
         && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
       requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, STORAGE_PERMISSION_REQUEST);
@@ -354,31 +358,14 @@ public class MainActivity extends Activity {
     networkIo.execute(() -> {
       int saved = 0;
       for (int i = 0; i < photos.size(); i++) {
+        Bitmap bitmap = null;
         try {
-          Bitmap bitmap = loadOriginal(photos.get(i).url, 0);
+          bitmap = loadOriginal(photos.get(i).url, 0);
           String fileName = "kidsnote_" + selectedYear() + "_" + String.format(Locale.US, "%04d", i + 1) + ".jpg";
-          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ContentValues values = new ContentValues();
-            values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
-            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-            values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/KidsNote/" + selectedYear());
-            Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
-            if (uri == null) throw new IOException("사진 저장 위치를 만들 수 없습니다.");
-            try (OutputStream out = getContentResolver().openOutputStream(uri)) {
-              if (out == null || !bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) throw new IOException("사진 저장 실패");
-            }
-          } else {
-            File directory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "KidsNote/" + selectedYear());
-            if (!directory.exists() && !directory.mkdirs()) throw new IOException("사진 폴더를 만들 수 없습니다.");
-            File target = new File(directory, fileName);
-            try (OutputStream out = new FileOutputStream(target)) {
-              if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) throw new IOException("사진 저장 실패");
-            }
-            MediaScannerConnection.scanFile(this, new String[]{target.getAbsolutePath()}, new String[]{"image/jpeg"}, null);
-          }
+          writeBitmapToGallery(bitmap, fileName, selectedYear());
           saved++;
-          bitmap.recycle();
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        } finally { if (bitmap != null && !bitmap.isRecycled()) bitmap.recycle(); }
         int done = i + 1;
         runOnUiThread(() -> progress.setProgress(done));
       }
@@ -386,6 +373,59 @@ public class MainActivity extends Activity {
       runOnUiThread(() -> {
         progress.setVisibility(View.GONE); downloadButton.setEnabled(true);
         Toast.makeText(this, "Pictures/KidsNote/" + selectedYear() + "에 " + finalSaved + "장 저장됨", Toast.LENGTH_LONG).show();
+      });
+    });
+  }
+
+  private void writeBitmapToGallery(Bitmap bitmap, String fileName, String year) throws IOException {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      ContentValues values = new ContentValues();
+      values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+      values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+      values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/KidsNote/" + year);
+      Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+      if (uri == null) throw new IOException("사진 저장 위치를 만들 수 없습니다.");
+      try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+        if (out == null || !bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) throw new IOException("사진 저장 실패");
+      }
+    } else {
+      File directory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "KidsNote/" + year);
+      if (!directory.exists() && !directory.mkdirs()) throw new IOException("사진 폴더를 만들 수 없습니다.");
+      File target = new File(directory, fileName);
+      try (OutputStream out = new FileOutputStream(target)) {
+        if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) throw new IOException("사진 저장 실패");
+      }
+      MediaScannerConnection.scanFile(this, new String[]{target.getAbsolutePath()}, new String[]{"image/jpeg"}, null);
+    }
+  }
+
+  private void saveSinglePhoto(Photo photo, Button button) {
+    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P
+        && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+      pendingSingleSave = photo;
+      pendingSingleSaveButton = button;
+      requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, STORAGE_PERMISSION_REQUEST);
+      return;
+    }
+    button.setEnabled(false);
+    button.setText("원본 저장 중…");
+    networkIo.execute(() -> {
+      Bitmap bitmap = null;
+      boolean success = false;
+      try {
+        bitmap = loadOriginal(photo.url, 0);
+        String year = yearOf(photo.date).isEmpty() ? selectedYear() : yearOf(photo.date);
+        String dateToken = photo.date.length() >= 10 ? photo.date.substring(0, 10).replaceAll("\\D", "") : year;
+        String fileName = "kidsnote_" + dateToken + "_" + Integer.toHexString(photo.url.hashCode()) + ".jpg";
+        writeBitmapToGallery(bitmap, fileName, year);
+        success = true;
+      } catch (Exception ignored) {
+      } finally { if (bitmap != null && !bitmap.isRecycled()) bitmap.recycle(); }
+      boolean saved = success;
+      runOnUiThread(() -> {
+        button.setEnabled(true);
+        button.setText(saved ? "저장 완료 ✓" : "다시 저장");
+        Toast.makeText(this, saved ? "사진 한 장을 갤러리에 저장했습니다." : "사진 저장에 실패했습니다.", Toast.LENGTH_LONG).show();
       });
     });
   }
@@ -403,8 +443,13 @@ public class MainActivity extends Activity {
   @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
     super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     if (requestCode != STORAGE_PERMISSION_REQUEST) return;
-    if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) saveAll();
-    else Toast.makeText(this, "사진을 저장하려면 저장소 권한이 필요합니다.", Toast.LENGTH_LONG).show();
+    if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+      if (pendingSingleSave != null && pendingSingleSaveButton != null) {
+        Photo photo = pendingSingleSave; Button button = pendingSingleSaveButton;
+        pendingSingleSave = null; pendingSingleSaveButton = null;
+        saveSinglePhoto(photo, button);
+      } else saveAll();
+    } else Toast.makeText(this, "사진을 저장하려면 저장소 권한이 필요합니다.", Toast.LENGTH_LONG).show();
   }
 
   private void setLoading(boolean loading, String message) {
@@ -436,12 +481,42 @@ public class MainActivity extends Activity {
     ImageView full = new ImageView(this);
     full.setScaleType(ImageView.ScaleType.FIT_CENTER);
     frame.addView(full, new FrameLayout.LayoutParams(-1, -1));
+
+    LinearLayout topBar = new LinearLayout(this);
+    topBar.setGravity(Gravity.CENTER_VERTICAL);
+    topBar.setPadding(dp(18), dp(10), dp(8), dp(10));
+    topBar.setBackgroundColor(Color.argb(190, 7, 17, 25));
+    TextView dateText = new TextView(this);
+    dateText.setText(displayDate(photo.date));
+    dateText.setTextColor(Color.WHITE);
+    dateText.setTextSize(18);
+    dateText.setTypeface(null, android.graphics.Typeface.BOLD);
+    topBar.addView(dateText, new LinearLayout.LayoutParams(0, dp(48), 1));
+    Button close = new Button(this);
+    close.setText("닫기");
+    close.setTextColor(Color.WHITE);
+    close.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(20, 38, 48)));
+    topBar.addView(close, new LinearLayout.LayoutParams(dp(76), dp(48)));
+    FrameLayout.LayoutParams topParams = new FrameLayout.LayoutParams(-1, dp(68), Gravity.TOP);
+    frame.addView(topBar, topParams);
+
+    Button save = new Button(this);
+    save.setText("이 사진 원본 저장");
+    save.setTextColor(Color.rgb(7, 61, 49));
+    save.setTextSize(16);
+    save.setTypeface(null, android.graphics.Typeface.BOLD);
+    save.setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(34, 201, 151)));
+    FrameLayout.LayoutParams saveParams = new FrameLayout.LayoutParams(-1, dp(58), Gravity.BOTTOM);
+    saveParams.setMargins(dp(22), 0, dp(22), dp(22));
+    frame.addView(save, saveParams);
+
     ProgressBar loading = new ProgressBar(this);
     FrameLayout.LayoutParams loadingParams = new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER);
     frame.addView(loading, loadingParams);
     Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
     dialog.setContentView(frame);
-    frame.setOnClickListener(v -> dialog.dismiss());
+    close.setOnClickListener(v -> dialog.dismiss());
+    save.setOnClickListener(v -> saveSinglePhoto(photo, save));
     dialog.show();
     networkIo.execute(() -> {
       try {
@@ -454,6 +529,12 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> { dialog.dismiss(); Toast.makeText(this, "사진을 열 수 없습니다.", Toast.LENGTH_SHORT).show(); });
       }
     });
+  }
+
+  private static String displayDate(String value) {
+    Matcher matcher = Pattern.compile("(20\\d{2})-(\\d{2})-(\\d{2})").matcher(value == null ? "" : value);
+    if (!matcher.find()) return "날짜 정보 없음";
+    return Integer.parseInt(matcher.group(1)) + "년 " + Integer.parseInt(matcher.group(2)) + "월 " + Integer.parseInt(matcher.group(3)) + "일";
   }
 
   private static String first(JSONObject object, String... keys) {
