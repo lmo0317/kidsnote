@@ -22,7 +22,9 @@ import java.util.regex.*;
 
 public class MainActivity extends Activity {
   private static final int STORAGE_PERMISSION_REQUEST = 1001;
-  private final ExecutorService io = Executors.newFixedThreadPool(4);
+  private final ExecutorService networkIo = Executors.newFixedThreadPool(2);
+  private final ThreadPoolExecutor thumbnailIo = new ThreadPoolExecutor(
+      3, 3, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(192), new ThreadPoolExecutor.DiscardOldestPolicy());
   private final ArrayList<Photo> photos = new ArrayList<>();
   private final LruCache<String, Bitmap> thumbnailCache = new LruCache<String, Bitmap>(16 * 1024 * 1024) {
     @Override protected int sizeOf(String key, Bitmap bitmap) { return bitmap.getByteCount(); }
@@ -37,6 +39,7 @@ public class MainActivity extends Activity {
   private volatile String childId = "", enrollment = "";
   private final Handler mainHandler = new Handler(Looper.getMainLooper());
   private boolean sessionChecking = false, pendingLoad = false;
+  private volatile int loadGeneration = 0;
   private final Runnable sessionTimeout = () -> {
     if (!childId.isEmpty()) return;
     sessionChecking = false;
@@ -153,14 +156,25 @@ public class MainActivity extends Activity {
       return;
     }
     final String year = selectedYear();
+    final int generation = ++loadGeneration;
+    thumbnailIo.getQueue().clear();
+    photos.clear();
+    thumbnailCache.evictAll();
+    ((BaseAdapter) gallery.getAdapter()).notifyDataSetChanged();
+    galleryTitle.setText(year + "년 사진");
+    emptyState.setVisibility(View.VISIBLE);
+    downloadButton.setEnabled(false);
     setLoading(true, year + "년 사진 목록을 불러오는 중");
-    io.execute(() -> {
+    networkIo.execute(() -> {
       try {
         LinkedHashMap<String, Photo> found = new LinkedHashMap<>();
         loadCollection("reports", year, found);
         loadCollection("albums", year, found);
         runOnUiThread(() -> {
-          photos.clear(); photos.addAll(found.values()); thumbnailCache.evictAll();
+          if (generation != loadGeneration) return;
+          photos.clear(); photos.addAll(found.values());
+          photos.sort((left, right) -> right.date.compareTo(left.date));
+          thumbnailCache.evictAll();
           ((BaseAdapter) gallery.getAdapter()).notifyDataSetChanged();
           galleryTitle.setText(year + "년 사진");
           countText.setText(photos.isEmpty() ? "가져온 사진이 없습니다" : photos.size() + "장의 사진 · 눌러서 크게 보기");
@@ -169,7 +183,7 @@ public class MainActivity extends Activity {
           setLoading(false, photos.isEmpty() ? "사진이 없습니다" : photos.size() + "장의 사진을 가져왔습니다");
         });
       } catch (Exception error) {
-        runOnUiThread(() -> setLoading(false, "불러오기 실패: " + error.getMessage()));
+        runOnUiThread(() -> { if (generation == loadGeneration) setLoading(false, "불러오기 실패: " + error.getMessage()); });
       }
     });
   }
@@ -184,9 +198,11 @@ public class MainActivity extends Activity {
       if (items != null) for (int i = 0; i < items.length(); i++) {
         JSONObject item = items.optJSONObject(i);
         if (item == null) continue;
-        String date = first(item, "date_written", "created", "created_at", "written_at", "published_at", "date");
+        String date = type.equals("albums")
+            ? first(item, "created")
+            : first(item, "date_written");
         if (!year.equals(yearOf(date))) continue;
-        collectAttachedImages(item, found);
+        collectAttachedImages(item, date, found);
       }
       next = payload.isNull("next") ? null : payload.optString("next", null);
       if (next != null && next.isEmpty()) next = null;
@@ -218,18 +234,18 @@ public class MainActivity extends Activity {
     return matcher.find() ? matcher.group(1) : "";
   }
 
-  private void collectAttachedImages(JSONObject item, Map<String, Photo> found) throws JSONException {
+  private void collectAttachedImages(JSONObject item, String date, Map<String, Photo> found) throws JSONException {
     String[] arrayKeys = {"attached_images", "images", "photos", "image_files", "attachments"};
     for (String key : arrayKeys) {
       JSONArray images = item.optJSONArray(key);
       if (images == null) continue;
-      for (int i = 0; i < images.length(); i++) addBestImage(images.opt(i), found);
+      for (int i = 0; i < images.length(); i++) addBestImage(images.opt(i), date, found);
     }
     String[] singleKeys = {"attached_image", "image", "photo"};
-    for (String key : singleKeys) if (item.has(key)) addBestImage(item.opt(key), found);
+    for (String key : singleKeys) if (item.has(key)) addBestImage(item.opt(key), date, found);
   }
 
-  private void addBestImage(Object value, Map<String, Photo> found) {
+  private void addBestImage(Object value, String date, Map<String, Photo> found) {
     String url = "";
     if (value instanceof String) url = (String) value;
     else if (value instanceof JSONObject) {
@@ -238,7 +254,7 @@ public class MainActivity extends Activity {
     }
     if (!url.startsWith("http") || !url.matches("(?i).*(jpg|jpeg|png|webp|gif|heic)(\\?.*)?$")) return;
     String key = url.replaceAll("\\?.*$", "").replaceAll("(?i)/(thumb|thumbnail|small|medium|large|original)/", "/");
-    found.putIfAbsent(key, new Photo(url));
+    found.putIfAbsent(key, new Photo(url, date));
   }
 
   private byte[] downloadBytes(String url) throws Exception {
@@ -267,10 +283,14 @@ public class MainActivity extends Activity {
     return bitmap;
   }
 
-  private Bitmap loadThumbnail(String url) throws Exception {
+  private Bitmap loadThumbnail(String url, int generation) throws Exception {
     Bitmap cached = thumbnailCache.get(url);
     if (cached != null) return cached;
     Bitmap bitmap = decodeImage(downloadBytes(url), 320);
+    if (generation != loadGeneration) {
+      bitmap.recycle();
+      return null;
+    }
     thumbnailCache.put(url, bitmap);
     return bitmap;
   }
@@ -288,7 +308,7 @@ public class MainActivity extends Activity {
     }
     progress.setMax(photos.size()); progress.setProgress(0); progress.setVisibility(View.VISIBLE);
     downloadButton.setEnabled(false);
-    io.execute(() -> {
+    networkIo.execute(() -> {
       int saved = 0;
       for (int i = 0; i < photos.size(); i++) {
         try {
@@ -380,7 +400,7 @@ public class MainActivity extends Activity {
     dialog.setContentView(frame);
     frame.setOnClickListener(v -> dialog.dismiss());
     dialog.show();
-    io.execute(() -> {
+    networkIo.execute(() -> {
       try {
         Bitmap bitmap = loadOriginal(photo.url, 2048);
         runOnUiThread(() -> {
@@ -417,16 +437,31 @@ public class MainActivity extends Activity {
       image.setOnClickListener(v -> showPhoto(photos.get(position)));
       Bitmap cached = thumbnailCache.get(url);
       if (cached != null) image.setImageBitmap(cached);
-      else io.execute(() -> {
-          try { Bitmap bitmap = loadThumbnail(url); runOnUiThread(() -> { if (url.equals(image.getTag())) image.setImageBitmap(bitmap); }); }
+      else {
+        int generation = loadGeneration;
+        thumbnailIo.execute(() -> {
+          try {
+            Bitmap bitmap = loadThumbnail(url, generation);
+            if (bitmap != null) runOnUiThread(() -> { if (generation == loadGeneration && url.equals(image.getTag())) image.setImageBitmap(bitmap); });
+          }
           catch (Exception ignored) {}
         });
+      }
       image.setTag(url);
       return image;
     }
   }
   private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density); }
-  private static class Photo { final String url; Photo(String url) { this.url = url; } }
+  private static class Photo {
+    final String url, date;
+    Photo(String url, String date) { this.url = url; this.date = date == null ? "" : date; }
+  }
 
-  @Override protected void onDestroy() { mainHandler.removeCallbacks(sessionTimeout); webView.destroy(); io.shutdownNow(); super.onDestroy(); }
+  @Override protected void onDestroy() {
+    mainHandler.removeCallbacks(sessionTimeout);
+    webView.destroy();
+    networkIo.shutdownNow();
+    thumbnailIo.shutdownNow();
+    super.onDestroy();
+  }
 }
