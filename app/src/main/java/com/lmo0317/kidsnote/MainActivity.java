@@ -148,7 +148,6 @@ public class MainActivity extends Activity {
     ((BaseAdapter) gallery.getAdapter()).notifyDataSetChanged();
     gallery.post(() -> gallery.setSelection(Math.max(0, firstVisible)));
     getPreferences(MODE_PRIVATE).edit().putInt("gallery_columns", columns).apply();
-    Toast.makeText(this, columns + "열 보기", Toast.LENGTH_SHORT).show();
   }
 
   private int galleryCellSize() {
@@ -567,8 +566,7 @@ public class MainActivity extends Activity {
   private void showPhoto(Photo photo) {
     FrameLayout frame = new FrameLayout(this);
     frame.setBackgroundColor(Color.BLACK);
-    ImageView full = new ImageView(this);
-    full.setScaleType(ImageView.ScaleType.FIT_CENTER);
+    ZoomImageView full = new ZoomImageView(this);
     frame.addView(full, new FrameLayout.LayoutParams(-1, -1));
 
     LinearLayout topBar = new LinearLayout(this);
@@ -675,6 +673,97 @@ public class MainActivity extends Activity {
       }
       image.setTag(url);
       return image;
+    }
+  }
+
+  private static class ZoomImageView extends ImageView {
+    private final Matrix zoomMatrix = new Matrix();
+    private final ScaleGestureDetector scaleDetector;
+    private final GestureDetector gestureDetector;
+    private float zoom = 1f;
+
+    ZoomImageView(Context context) {
+      super(context);
+      setScaleType(ScaleType.MATRIX);
+      scaleDetector = new ScaleGestureDetector(context, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+        @Override public boolean onScale(ScaleGestureDetector detector) {
+          float requested = detector.getScaleFactor();
+          float next = Math.max(1f, Math.min(5f, zoom * requested));
+          float factor = next / zoom;
+          zoom = next;
+          zoomMatrix.postScale(factor, factor, detector.getFocusX(), detector.getFocusY());
+          fixBounds();
+          setImageMatrix(zoomMatrix);
+          return true;
+        }
+      });
+      gestureDetector = new GestureDetector(context, new GestureDetector.SimpleOnGestureListener() {
+        @Override public boolean onDown(MotionEvent event) { return true; }
+        @Override public boolean onScroll(MotionEvent first, MotionEvent current, float distanceX, float distanceY) {
+          if (zoom <= 1f) return false;
+          zoomMatrix.postTranslate(-distanceX, -distanceY);
+          fixBounds();
+          setImageMatrix(zoomMatrix);
+          return true;
+        }
+        @Override public boolean onDoubleTap(MotionEvent event) {
+          if (zoom > 1f) resetZoom();
+          else {
+            zoom = 2.5f;
+            zoomMatrix.postScale(zoom, zoom, event.getX(), event.getY());
+            fixBounds();
+            setImageMatrix(zoomMatrix);
+          }
+          return true;
+        }
+      });
+    }
+
+    @Override public void setImageBitmap(Bitmap bitmap) {
+      super.setImageBitmap(bitmap);
+      post(this::resetZoom);
+    }
+
+    @Override protected void onSizeChanged(int width, int height, int oldWidth, int oldHeight) {
+      super.onSizeChanged(width, height, oldWidth, oldHeight);
+      post(this::resetZoom);
+    }
+
+    @Override public boolean onTouchEvent(MotionEvent event) {
+      scaleDetector.onTouchEvent(event);
+      gestureDetector.onTouchEvent(event);
+      return true;
+    }
+
+    private void resetZoom() {
+      android.graphics.drawable.Drawable drawable = getDrawable();
+      if (drawable == null || getWidth() == 0 || getHeight() == 0) return;
+      float drawableWidth = drawable.getIntrinsicWidth();
+      float drawableHeight = drawable.getIntrinsicHeight();
+      if (drawableWidth <= 0 || drawableHeight <= 0) return;
+      float scale = Math.min(getWidth() / drawableWidth, getHeight() / drawableHeight);
+      float dx = (getWidth() - drawableWidth * scale) / 2f;
+      float dy = (getHeight() - drawableHeight * scale) / 2f;
+      zoomMatrix.reset();
+      zoomMatrix.postScale(scale, scale);
+      zoomMatrix.postTranslate(dx, dy);
+      zoom = 1f;
+      setImageMatrix(zoomMatrix);
+    }
+
+    private void fixBounds() {
+      android.graphics.drawable.Drawable drawable = getDrawable();
+      if (drawable == null) return;
+      RectF bounds = new RectF(0, 0, drawable.getIntrinsicWidth(), drawable.getIntrinsicHeight());
+      zoomMatrix.mapRect(bounds);
+      float dx = 0f, dy = 0f;
+      if (bounds.width() <= getWidth()) dx = (getWidth() - bounds.width()) / 2f - bounds.left;
+      else if (bounds.left > 0) dx = -bounds.left;
+      else if (bounds.right < getWidth()) dx = getWidth() - bounds.right;
+      if (bounds.height() <= getHeight()) dy = (getHeight() - bounds.height()) / 2f - bounds.top;
+      else if (bounds.top > 0) dy = -bounds.top;
+      else if (bounds.bottom < getHeight()) dy = getHeight() - bounds.bottom;
+      zoomMatrix.postTranslate(dx, dy);
     }
   }
   private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density); }
