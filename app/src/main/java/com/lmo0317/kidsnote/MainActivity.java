@@ -107,16 +107,17 @@ public class MainActivity extends Activity {
       openLogin();
       return;
     }
-    setLoading(true, selectedYear() + "년 사진 목록을 불러오는 중");
+    final String year = selectedYear();
+    setLoading(true, year + "년 사진 목록을 불러오는 중");
     io.execute(() -> {
       try {
         LinkedHashMap<String, Photo> found = new LinkedHashMap<>();
-        loadCollection("reports", selectedYear(), found);
-        loadCollection("albums", selectedYear(), found);
+        loadCollection("reports", year, found);
+        loadCollection("albums", year, found);
         runOnUiThread(() -> {
           photos.clear(); photos.addAll(found.values()); thumbnailCache.evictAll();
           ((BaseAdapter) gallery.getAdapter()).notifyDataSetChanged();
-          galleryTitle.setText(selectedYear() + "년 사진");
+          galleryTitle.setText(year + "년 사진");
           countText.setText(photos.isEmpty() ? "가져온 사진이 없습니다" : photos.size() + "장의 사진 · 눌러서 크게 보기");
           emptyState.setVisibility(photos.isEmpty() ? View.VISIBLE : View.GONE);
           downloadButton.setEnabled(!photos.isEmpty());
@@ -138,9 +139,9 @@ public class MainActivity extends Activity {
       if (items != null) for (int i = 0; i < items.length(); i++) {
         JSONObject item = items.optJSONObject(i);
         if (item == null) continue;
-        String date = first(item, "date_written", "written_at", "created_at", "date");
-        if (!date.startsWith(year)) continue;
-        collectImages(item, found);
+        String date = first(item, "date_written", "created", "created_at", "written_at", "published_at", "date");
+        if (!year.equals(yearOf(date))) continue;
+        collectAttachedImages(item, found);
       }
       next = payload.isNull("next") ? null : payload.optString("next", null);
       if (next != null && next.isEmpty()) next = null;
@@ -167,21 +168,32 @@ public class MainActivity extends Activity {
     return connection;
   }
 
-  private void collectImages(Object value, Map<String, Photo> found) throws JSONException {
-    if (value instanceof JSONObject) {
-      JSONObject object = (JSONObject) value;
-      Iterator<String> keys = object.keys();
-      while (keys.hasNext()) collectImages(object.opt(keys.next()), found);
-    } else if (value instanceof JSONArray) {
-      JSONArray array = (JSONArray) value;
-      for (int i = 0; i < array.length(); i++) collectImages(array.opt(i), found);
-    } else if (value instanceof String) {
-      String url = (String) value;
-      if (url.startsWith("http") && url.matches("(?i).*(jpg|jpeg|png|webp|gif|heic)(\\?.*)?$")) {
-        String key = url.replaceAll("\\?.*$", "").replaceAll("(?i)/(thumb|small|medium)/", "/");
-        found.put(key, new Photo(url));
-      }
+  private static String yearOf(String date) {
+    Matcher matcher = Pattern.compile("(?:^|\\D)(20\\d{2})(?:\\D|$)").matcher(date == null ? "" : date);
+    return matcher.find() ? matcher.group(1) : "";
+  }
+
+  private void collectAttachedImages(JSONObject item, Map<String, Photo> found) throws JSONException {
+    String[] arrayKeys = {"attached_images", "images", "photos", "image_files", "attachments"};
+    for (String key : arrayKeys) {
+      JSONArray images = item.optJSONArray(key);
+      if (images == null) continue;
+      for (int i = 0; i < images.length(); i++) addBestImage(images.opt(i), found);
     }
+    String[] singleKeys = {"attached_image", "image", "photo"};
+    for (String key : singleKeys) if (item.has(key)) addBestImage(item.opt(key), found);
+  }
+
+  private void addBestImage(Object value, Map<String, Photo> found) {
+    String url = "";
+    if (value instanceof String) url = (String) value;
+    else if (value instanceof JSONObject) {
+      JSONObject image = (JSONObject) value;
+      url = first(image, "original", "large", "url", "file", "image", "thumbnail");
+    }
+    if (!url.startsWith("http") || !url.matches("(?i).*(jpg|jpeg|png|webp|gif|heic)(\\?.*)?$")) return;
+    String key = url.replaceAll("\\?.*$", "").replaceAll("(?i)/(thumb|thumbnail|small|medium|large|original)/", "/");
+    found.putIfAbsent(key, new Photo(url));
   }
 
   private byte[] downloadBytes(String url) throws Exception {
