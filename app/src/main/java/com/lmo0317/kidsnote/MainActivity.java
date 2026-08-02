@@ -36,6 +36,9 @@ public class MainActivity extends Activity {
   private TextView countText, galleryTitle, loginStatusBadge, loginStatusDetail;
   private ProgressBar progress;
   private GridView gallery;
+  private ScaleGestureDetector galleryScaleDetector;
+  private int galleryColumns = 3;
+  private float galleryScale = 1f;
   private Spinner yearSpinner;
   private Button downloadButton;
   private LinearLayout webPanel, emptyState;
@@ -72,6 +75,7 @@ public class MainActivity extends Activity {
     webPanel = findViewById(R.id.webPanel);
     emptyState = findViewById(R.id.emptyState);
     webView = findViewById(R.id.webView);
+    galleryColumns = Math.max(2, Math.min(5, getPreferences(MODE_PRIVATE).getInt("gallery_columns", 3)));
 
     ArrayList<String> years = new ArrayList<>();
     int current = Calendar.getInstance().get(Calendar.YEAR);
@@ -85,15 +89,72 @@ public class MainActivity extends Activity {
     findViewById(R.id.loadButton).setOnClickListener(v -> loadYear());
     downloadButton.setOnClickListener(v -> confirmBackup());
     gallery.setAdapter(new PhotoAdapter());
+    gallery.setNumColumns(galleryColumns);
     gallery.setOnItemClickListener((parent, view, position, id) -> {
       if (position >= 0 && position < photos.size()) showPhoto(photos.get(position));
     });
+    setupGalleryPinch();
     networkIo.execute(this::trimThumbnailDiskCache);
   }
 
   private void applySystemBarInsets() {
     View root = findViewById(R.id.rootView);
     applyInsets(root);
+  }
+
+  private void setupGalleryPinch() {
+    galleryScaleDetector = new ScaleGestureDetector(this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+      @Override public boolean onScaleBegin(ScaleGestureDetector detector) {
+        galleryScale = 1f;
+        return true;
+      }
+
+      @Override public boolean onScale(ScaleGestureDetector detector) {
+        galleryScale *= detector.getScaleFactor();
+        if (galleryScale >= 1.18f && galleryColumns > 2) {
+          setGalleryColumns(galleryColumns - 1);
+          galleryScale = 1f;
+        } else if (galleryScale <= .84f && galleryColumns < 5) {
+          setGalleryColumns(galleryColumns + 1);
+          galleryScale = 1f;
+        }
+        return true;
+      }
+    });
+    gallery.setOnTouchListener(new View.OnTouchListener() {
+      private boolean pinching;
+      @Override public boolean onTouch(View view, MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
+          pinching = true;
+          view.getParent().requestDisallowInterceptTouchEvent(true);
+        }
+        galleryScaleDetector.onTouchEvent(event);
+        boolean consume = pinching;
+        if (event.getActionMasked() == MotionEvent.ACTION_UP || event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
+          pinching = false;
+          view.getParent().requestDisallowInterceptTouchEvent(false);
+        }
+        return consume;
+      }
+    });
+  }
+
+  private void setGalleryColumns(int columns) {
+    columns = Math.max(2, Math.min(5, columns));
+    if (columns == galleryColumns) return;
+    int firstVisible = gallery.getFirstVisiblePosition();
+    galleryColumns = columns;
+    gallery.setNumColumns(columns);
+    ((BaseAdapter) gallery.getAdapter()).notifyDataSetChanged();
+    gallery.post(() -> gallery.setSelection(Math.max(0, firstVisible)));
+    getPreferences(MODE_PRIVATE).edit().putInt("gallery_columns", columns).apply();
+    Toast.makeText(this, columns + "열 보기", Toast.LENGTH_SHORT).show();
+  }
+
+  private int galleryCellSize() {
+    int width = gallery.getWidth();
+    if (width <= 0) width = getResources().getDisplayMetrics().widthPixels;
+    return Math.max(dp(68), (width - dp(8) - dp(3) * (galleryColumns - 1)) / galleryColumns);
   }
 
   private void applyInsets(View target) {
@@ -587,7 +648,7 @@ public class MainActivity extends Activity {
     public long getItemId(int p) { return p; }
     public View getView(int position, View convert, android.view.ViewGroup parent) {
       ImageView image = convert instanceof ImageView ? (ImageView) convert : new ImageView(MainActivity.this);
-      image.setLayoutParams(new AbsListView.LayoutParams(-1, dp(124)));
+      image.setLayoutParams(new AbsListView.LayoutParams(-1, galleryCellSize()));
       image.setScaleType(ImageView.ScaleType.CENTER_CROP);
       image.animate().cancel();
       image.setAlpha(1f);
