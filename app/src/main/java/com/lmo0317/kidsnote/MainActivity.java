@@ -60,6 +60,7 @@ public class MainActivity extends Activity {
   @Override public void onCreate(Bundle state) {
     super.onCreate(state);
     setContentView(R.layout.activity_main);
+    applySystemBarInsets();
     countText = findViewById(R.id.countText);
     galleryTitle = findViewById(R.id.galleryTitle);
     loginStatusBadge = findViewById(R.id.loginStatusBadge);
@@ -85,6 +86,30 @@ public class MainActivity extends Activity {
     downloadButton.setOnClickListener(v -> confirmBackup());
     gallery.setAdapter(new PhotoAdapter());
     networkIo.execute(this::trimThumbnailDiskCache);
+  }
+
+  private void applySystemBarInsets() {
+    View root = findViewById(R.id.rootView);
+    applyInsets(root);
+  }
+
+  private void applyInsets(View target) {
+    target.setOnApplyWindowInsetsListener((view, windowInsets) -> {
+      int left, top, right, bottom;
+      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+        android.graphics.Insets bars = windowInsets.getInsets(
+            WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout());
+        left = bars.left; top = bars.top; right = bars.right; bottom = bars.bottom;
+      } else {
+        left = windowInsets.getSystemWindowInsetLeft();
+        top = windowInsets.getSystemWindowInsetTop();
+        right = windowInsets.getSystemWindowInsetRight();
+        bottom = windowInsets.getSystemWindowInsetBottom();
+      }
+      view.setPadding(left, top, right, bottom);
+      return windowInsets;
+    });
+    target.requestApplyInsets();
   }
 
   private void setupWebView() {
@@ -518,6 +543,12 @@ public class MainActivity extends Activity {
     close.setOnClickListener(v -> dialog.dismiss());
     save.setOnClickListener(v -> saveSinglePhoto(photo, save));
     dialog.show();
+    applyInsets(frame);
+    if (dialog.getWindow() != null) {
+      dialog.getWindow().setStatusBarColor(Color.BLACK);
+      dialog.getWindow().setNavigationBarColor(Color.BLACK);
+      dialog.getWindow().getDecorView().setSystemUiVisibility(0);
+    }
     networkIo.execute(() -> {
       try {
         Bitmap bitmap = loadOriginal(photo.url, 2048);
