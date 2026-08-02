@@ -91,7 +91,7 @@ public class MainActivity extends Activity {
     gallery.setAdapter(new PhotoAdapter());
     gallery.setNumColumns(galleryColumns);
     gallery.setOnItemClickListener((parent, view, position, id) -> {
-      if (position >= 0 && position < photos.size()) showPhoto(photos.get(position));
+      if (position >= 0 && position < photos.size()) showPhoto(position);
     });
     setupGalleryPinch();
     networkIo.execute(this::trimThumbnailDiskCache);
@@ -563,7 +563,9 @@ public class MainActivity extends Activity {
     ((Button) findViewById(R.id.loginButton)).setText("로그인");
   }
 
-  private void showPhoto(Photo photo) {
+  private void showPhoto(int startIndex) {
+    if (startIndex < 0 || startIndex >= photos.size()) return;
+    Photo initialPhoto = photos.get(startIndex);
     FrameLayout frame = new FrameLayout(this);
     frame.setBackgroundColor(Color.BLACK);
     ZoomImageView full = new ZoomImageView(this);
@@ -574,7 +576,7 @@ public class MainActivity extends Activity {
     topBar.setPadding(dp(18), dp(10), dp(8), dp(10));
     topBar.setBackgroundColor(Color.argb(190, 7, 17, 25));
     TextView dateText = new TextView(this);
-    dateText.setText(displayDate(photo.date));
+    dateText.setText(displayDate(initialPhoto.date));
     dateText.setTextColor(Color.WHITE);
     dateText.setTextSize(18);
     dateText.setTypeface(null, android.graphics.Typeface.BOLD);
@@ -603,7 +605,6 @@ public class MainActivity extends Activity {
     Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
     dialog.setContentView(frame);
     close.setOnClickListener(v -> dialog.dismiss());
-    save.setOnClickListener(v -> saveSinglePhoto(photo, save));
     dialog.show();
     applyInsets(frame);
     if (dialog.getWindow() != null) {
@@ -611,17 +612,59 @@ public class MainActivity extends Activity {
       dialog.getWindow().setNavigationBarColor(Color.BLACK);
       dialog.getWindow().getDecorView().setSystemUiVisibility(0);
     }
-    networkIo.execute(() -> {
-      try {
-        Bitmap bitmap = loadOriginal(photo.url, 2048);
-        runOnUiThread(() -> {
-          loading.setVisibility(View.GONE); full.setImageBitmap(bitmap);
-          dialog.setOnDismissListener(ignored -> { full.setImageDrawable(null); if (!bitmap.isRecycled()) bitmap.recycle(); });
+    int[] currentIndex = {startIndex};
+    Bitmap[] displayedBitmap = {null};
+    java.util.concurrent.atomic.AtomicInteger loadToken = new java.util.concurrent.atomic.AtomicInteger();
+    java.util.function.IntConsumer displayPhoto = new java.util.function.IntConsumer() {
+      @Override public void accept(int index) {
+        if (index < 0 || index >= photos.size() || index == currentIndex[0] && displayedBitmap[0] != null) return;
+        int previousIndex = currentIndex[0];
+        currentIndex[0] = index;
+        Photo selected = photos.get(index);
+        int token = loadToken.incrementAndGet();
+        dateText.setText(displayDate(selected.date));
+        save.setEnabled(true);
+        save.setText("이 사진 원본 저장");
+        save.setOnClickListener(v -> saveSinglePhoto(selected, save));
+        loading.setVisibility(View.VISIBLE);
+        networkIo.execute(() -> {
+          try {
+            Bitmap bitmap = loadOriginal(selected.url, 2048);
+            runOnUiThread(() -> {
+              if (!dialog.isShowing() || token != loadToken.get()) {
+                if (!bitmap.isRecycled()) bitmap.recycle();
+                return;
+              }
+              Bitmap previous = displayedBitmap[0];
+              displayedBitmap[0] = bitmap;
+              full.setImageBitmap(bitmap);
+              full.setTranslationX(index >= previousIndex ? dp(36) : -dp(36));
+              full.setAlpha(.45f);
+              full.animate().translationX(0).alpha(1f).setDuration(180).start();
+              loading.setVisibility(View.GONE);
+              if (previous != null && !previous.isRecycled()) previous.recycle();
+            });
+          } catch (Exception error) {
+            runOnUiThread(() -> {
+              if (token != loadToken.get()) return;
+              currentIndex[0] = previousIndex;
+              Photo previous = photos.get(previousIndex);
+              dateText.setText(displayDate(previous.date));
+              save.setOnClickListener(v -> saveSinglePhoto(previous, save));
+              loading.setVisibility(View.GONE);
+              Toast.makeText(MainActivity.this, "사진을 열 수 없습니다.", Toast.LENGTH_SHORT).show();
+            });
+          }
         });
-      } catch (Exception error) {
-        runOnUiThread(() -> { dialog.dismiss(); Toast.makeText(this, "사진을 열 수 없습니다.", Toast.LENGTH_SHORT).show(); });
       }
+    };
+    full.setOnPhotoSwipeListener(direction -> displayPhoto.accept(currentIndex[0] + direction));
+    dialog.setOnDismissListener(ignored -> {
+      loadToken.incrementAndGet();
+      full.setImageDrawable(null);
+      if (displayedBitmap[0] != null && !displayedBitmap[0].isRecycled()) displayedBitmap[0].recycle();
     });
+    displayPhoto.accept(startIndex);
   }
 
   private static String displayDate(String value) {
@@ -677,10 +720,12 @@ public class MainActivity extends Activity {
   }
 
   private static class ZoomImageView extends ImageView {
+    interface OnPhotoSwipeListener { void onSwipe(int direction); }
     private final Matrix zoomMatrix = new Matrix();
     private final ScaleGestureDetector scaleDetector;
     private final GestureDetector gestureDetector;
     private float zoom = 1f;
+    private OnPhotoSwipeListener photoSwipeListener;
 
     ZoomImageView(Context context) {
       super(context);
@@ -706,6 +751,14 @@ public class MainActivity extends Activity {
           setImageMatrix(zoomMatrix);
           return true;
         }
+        @Override public boolean onFling(MotionEvent first, MotionEvent last, float velocityX, float velocityY) {
+          if (zoom > 1f || first == null || last == null || photoSwipeListener == null) return false;
+          float distance = last.getX() - first.getX();
+          float threshold = 56f * getResources().getDisplayMetrics().density;
+          if (Math.abs(distance) < threshold || Math.abs(velocityX) < Math.abs(velocityY)) return false;
+          photoSwipeListener.onSwipe(distance < 0 ? 1 : -1);
+          return true;
+        }
         @Override public boolean onDoubleTap(MotionEvent event) {
           if (zoom > 1f) resetZoom();
           else {
@@ -718,6 +771,8 @@ public class MainActivity extends Activity {
         }
       });
     }
+
+    void setOnPhotoSwipeListener(OnPhotoSwipeListener listener) { photoSwipeListener = listener; }
 
     @Override public void setImageBitmap(Bitmap bitmap) {
       super.setImageBitmap(bitmap);
