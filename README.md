@@ -1,14 +1,19 @@
-# KidsNote Photo Backup
+# KidsNote Gallery for Android
 
-플래너에서 분리한 키즈노트 사진 백업·조회·다운로드 전용 앱입니다.
+별도 웹 서버 없이 안드로이드 앱에서 키즈노트에 직접 로그인하고 사진을 보는 앱입니다.
 
-## 실행
+## 기능
 
-1. `npm install`
-2. `.env.example`을 참고해 `.env` 생성
-3. `npm start`
-4. `http://localhost:3100/photo` 접속
+- 앱 내부 WebView 키즈노트 로그인
+- 키즈노트 API 직접 연결
+- 연도별 3열 사진 갤러리
+- 사진을 `Pictures/KidsNote/<연도>`에 직접 저장
+- 서버 사진 저장, 서버 세션, 서버 ZIP 생성 없음
 
-기존 사진 저장소를 복사하지 않고 연결하려면 `PHOTO_BACKUP_DIR`에 기존
-`photo-backups` 절대 경로를 지정합니다. 데이터 파일은 자동으로 이동하거나
-삭제하지 않습니다.
+## 빌드
+
+```powershell
+.\gradlew.bat assembleDebug
+```
+
+APK: `app/build/outputs/apk/debug/app-debug.apk`

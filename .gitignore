@@ -1,4 +1,10 @@
 node_modules/
+.gradle/
+.gradle-dist/
+.android-sdk/
+build/
+app/build/
+local.properties
 .env
 .codex-temp/
 data/kidsnote-sessions.json
