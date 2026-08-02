@@ -16,17 +16,21 @@ import android.widget.*;
 import org.json.*;
 import java.io.*;
 import java.net.*;
+import java.security.*;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.regex.*;
 
 public class MainActivity extends Activity {
   private static final int STORAGE_PERMISSION_REQUEST = 1001;
+  private static final long DISK_CACHE_LIMIT = 192L * 1024 * 1024;
+  private static final int MEMORY_CACHE_LIMIT = (int) Math.max(16L * 1024 * 1024,
+      Math.min(64L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 6));
   private final ExecutorService networkIo = Executors.newFixedThreadPool(2);
   private final ThreadPoolExecutor thumbnailIo = new ThreadPoolExecutor(
       3, 3, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(192), new ThreadPoolExecutor.DiscardOldestPolicy());
   private final ArrayList<Photo> photos = new ArrayList<>();
-  private final LruCache<String, Bitmap> thumbnailCache = new LruCache<String, Bitmap>(16 * 1024 * 1024) {
+  private final LruCache<String, Bitmap> thumbnailCache = new LruCache<String, Bitmap>(MEMORY_CACHE_LIMIT) {
     @Override protected int sizeOf(String key, Bitmap bitmap) { return bitmap.getByteCount(); }
   };
   private TextView countText, galleryTitle, loginStatusBadge, loginStatusDetail;
@@ -78,6 +82,7 @@ public class MainActivity extends Activity {
     findViewById(R.id.loadButton).setOnClickListener(v -> loadYear());
     downloadButton.setOnClickListener(v -> confirmBackup());
     gallery.setAdapter(new PhotoAdapter());
+    networkIo.execute(this::trimThumbnailDiskCache);
   }
 
   private void setupWebView() {
@@ -159,7 +164,6 @@ public class MainActivity extends Activity {
     final int generation = ++loadGeneration;
     thumbnailIo.getQueue().clear();
     photos.clear();
-    thumbnailCache.evictAll();
     ((BaseAdapter) gallery.getAdapter()).notifyDataSetChanged();
     galleryTitle.setText(year + "년 사진");
     emptyState.setVisibility(View.VISIBLE);
@@ -174,7 +178,6 @@ public class MainActivity extends Activity {
           if (generation != loadGeneration) return;
           photos.clear(); photos.addAll(found.values());
           photos.sort((left, right) -> right.date.compareTo(left.date));
-          thumbnailCache.evictAll();
           ((BaseAdapter) gallery.getAdapter()).notifyDataSetChanged();
           galleryTitle.setText(year + "년 사진");
           countText.setText(photos.isEmpty() ? "가져온 사진이 없습니다" : photos.size() + "장의 사진 · 눌러서 크게 보기");
@@ -286,13 +289,53 @@ public class MainActivity extends Activity {
   private Bitmap loadThumbnail(String url, int generation) throws Exception {
     Bitmap cached = thumbnailCache.get(url);
     if (cached != null) return cached;
+    File diskFile = thumbnailFile(url);
+    if (diskFile.isFile()) {
+      BitmapFactory.Options options = new BitmapFactory.Options();
+      options.inPreferredConfig = Bitmap.Config.RGB_565;
+      Bitmap diskBitmap = BitmapFactory.decodeFile(diskFile.getAbsolutePath(), options);
+      if (diskBitmap != null) {
+        diskFile.setLastModified(System.currentTimeMillis());
+        if (generation != loadGeneration) { diskBitmap.recycle(); return null; }
+        thumbnailCache.put(url, diskBitmap);
+        return diskBitmap;
+      }
+      diskFile.delete();
+    }
     Bitmap bitmap = decodeImage(downloadBytes(url), 320);
     if (generation != loadGeneration) {
       bitmap.recycle();
       return null;
     }
     thumbnailCache.put(url, bitmap);
+    File directory = diskFile.getParentFile();
+    if ((directory.isDirectory() || directory.mkdirs()) && !diskFile.exists()) {
+      try (OutputStream output = new BufferedOutputStream(new FileOutputStream(diskFile))) {
+        bitmap.compress(Bitmap.CompressFormat.JPEG, 84, output);
+      } catch (IOException ignored) {}
+    }
     return bitmap;
+  }
+
+  private File thumbnailFile(String url) throws NoSuchAlgorithmException {
+    byte[] digest = MessageDigest.getInstance("SHA-256").digest(url.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    StringBuilder name = new StringBuilder(64);
+    for (byte value : digest) name.append(String.format(Locale.US, "%02x", value & 0xff));
+    return new File(new File(getCacheDir(), "thumbnails"), name + ".jpg");
+  }
+
+  private void trimThumbnailDiskCache() {
+    File directory = new File(getCacheDir(), "thumbnails");
+    File[] files = directory.listFiles();
+    if (files == null) return;
+    Arrays.sort(files, Comparator.comparingLong(File::lastModified));
+    long total = 0;
+    for (File file : files) total += file.length();
+    for (File file : files) {
+      if (total <= DISK_CACHE_LIMIT) break;
+      long length = file.length();
+      if (file.delete()) total -= length;
+    }
   }
 
   private Bitmap loadOriginal(String url, int maxDimension) throws Exception {
@@ -431,7 +474,9 @@ public class MainActivity extends Activity {
       ImageView image = convert instanceof ImageView ? (ImageView) convert : new ImageView(MainActivity.this);
       image.setLayoutParams(new AbsListView.LayoutParams(-1, dp(124)));
       image.setScaleType(ImageView.ScaleType.CENTER_CROP);
-      image.setBackgroundColor(Color.rgb(16, 27, 38));
+      image.animate().cancel();
+      image.setAlpha(1f);
+      image.setBackgroundColor(Color.rgb(226, 234, 232));
       image.setImageDrawable(null);
       String url = photos.get(position).url;
       image.setOnClickListener(v -> showPhoto(photos.get(position)));
@@ -442,7 +487,13 @@ public class MainActivity extends Activity {
         thumbnailIo.execute(() -> {
           try {
             Bitmap bitmap = loadThumbnail(url, generation);
-            if (bitmap != null) runOnUiThread(() -> { if (generation == loadGeneration && url.equals(image.getTag())) image.setImageBitmap(bitmap); });
+            if (bitmap != null) runOnUiThread(() -> {
+              if (generation == loadGeneration && url.equals(image.getTag())) {
+                image.setAlpha(.35f);
+                image.setImageBitmap(bitmap);
+                image.animate().alpha(1f).setDuration(140).start();
+              }
+            });
           }
           catch (Exception ignored) {}
         });
