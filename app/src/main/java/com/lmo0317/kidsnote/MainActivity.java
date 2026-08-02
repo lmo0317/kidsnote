@@ -1,8 +1,11 @@
 package com.lmo0317.kidsnote;
 
 import android.app.*;
+import android.Manifest;
 import android.content.*;
+import android.content.pm.PackageManager;
 import android.graphics.*;
+import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.*;
 import android.provider.MediaStore;
@@ -17,6 +20,7 @@ import java.util.concurrent.*;
 import java.util.regex.*;
 
 public class MainActivity extends Activity {
+  private static final int STORAGE_PERMISSION_REQUEST = 1001;
   private final ExecutorService io = Executors.newFixedThreadPool(4);
   private final ArrayList<Photo> photos = new ArrayList<>();
   private final HashMap<String, Bitmap> cache = new HashMap<>();
@@ -184,6 +188,11 @@ public class MainActivity extends Activity {
 
   private void saveAll() {
     if (photos.isEmpty()) return;
+    if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P
+        && checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) != PackageManager.PERMISSION_GRANTED) {
+      requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, STORAGE_PERMISSION_REQUEST);
+      return;
+    }
     progress.setMax(photos.size()); progress.setProgress(0); progress.setVisibility(View.VISIBLE);
     downloadButton.setEnabled(false);
     io.execute(() -> {
@@ -191,12 +200,26 @@ public class MainActivity extends Activity {
       for (int i = 0; i < photos.size(); i++) {
         try {
           Bitmap bitmap = loadBitmap(photos.get(i).url);
-          ContentValues values = new ContentValues();
-          values.put(MediaStore.Images.Media.DISPLAY_NAME, "kidsnote_" + selectedYear() + "_" + String.format(Locale.US, "%04d", i + 1) + ".jpg");
-          values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-          values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/KidsNote/" + selectedYear());
-          Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
-          if (uri != null) try (OutputStream out = getContentResolver().openOutputStream(uri)) { bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out); }
+          String fileName = "kidsnote_" + selectedYear() + "_" + String.format(Locale.US, "%04d", i + 1) + ".jpg";
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
+            values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+            values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/KidsNote/" + selectedYear());
+            Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) throw new IOException("사진 저장 위치를 만들 수 없습니다.");
+            try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+              if (out == null || !bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) throw new IOException("사진 저장 실패");
+            }
+          } else {
+            File directory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "KidsNote/" + selectedYear());
+            if (!directory.exists() && !directory.mkdirs()) throw new IOException("사진 폴더를 만들 수 없습니다.");
+            File target = new File(directory, fileName);
+            try (OutputStream out = new FileOutputStream(target)) {
+              if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) throw new IOException("사진 저장 실패");
+            }
+            MediaScannerConnection.scanFile(this, new String[]{target.getAbsolutePath()}, new String[]{"image/jpeg"}, null);
+          }
           saved++;
         } catch (Exception ignored) {}
         int done = i + 1;
@@ -208,6 +231,13 @@ public class MainActivity extends Activity {
         Toast.makeText(this, "Pictures/KidsNote/" + selectedYear() + "에 " + finalSaved + "장 저장됨", Toast.LENGTH_LONG).show();
       });
     });
+  }
+
+  @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+    super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+    if (requestCode != STORAGE_PERMISSION_REQUEST) return;
+    if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) saveAll();
+    else Toast.makeText(this, "사진을 저장하려면 저장소 권한이 필요합니다.", Toast.LENGTH_LONG).show();
   }
 
   private void setLoading(boolean loading, String message) {
