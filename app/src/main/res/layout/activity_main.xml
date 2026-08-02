@@ -1,22 +1,96 @@
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@color/navy">
-  <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:padding="16dp">
-    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="KIDSNOTE PHOTO" android:textColor="@color/mint" android:textStyle="bold" android:textSize="12sp" />
-    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="키즈노트 갤러리" android:textColor="@color/white" android:textStyle="bold" android:textSize="28sp" />
-    <TextView android:id="@+id/statusText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="로그인 후 사진을 불러오세요" android:textColor="#9FB0BE" />
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:orientation="horizontal">
-      <Button android:id="@+id/loginButton" android:layout_width="0dp" android:layout_height="52dp" android:layout_weight="1" android:text="키즈노트 로그인" />
-      <Spinner android:id="@+id/yearSpinner" android:layout_width="120dp" android:layout_height="52dp" android:layout_marginStart="8dp" android:background="#FFFFFF" />
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+  android:layout_width="match_parent" android:layout_height="match_parent" android:background="@color/surface">
+
+  <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
+      android:background="@color/navy" android:paddingStart="20dp" android:paddingTop="18dp" android:paddingEnd="20dp" android:paddingBottom="22dp">
+      <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="KIDSNOTE BACKUP"
+        android:textColor="@color/mint" android:textStyle="bold" android:textSize="11sp" android:letterSpacing="0.08" />
+      <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="5dp"
+        android:text="아이의 기록을\n안전하게 모아보세요" android:textColor="@color/white" android:textStyle="bold"
+        android:textSize="27sp" android:lineSpacingExtra="2dp" />
     </LinearLayout>
-    <Button android:id="@+id/loadButton" android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="8dp" android:text="선택 연도 사진 보기" />
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
-      <TextView android:id="@+id/countText" android:layout_width="0dp" android:layout_height="48dp" android:layout_weight="1" android:gravity="center_vertical" android:text="0장" android:textColor="@color/white" android:textStyle="bold" />
-      <Button android:id="@+id/downloadButton" android:layout_width="wrap_content" android:layout_height="48dp" android:enabled="false" android:text="전체 저장" />
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical"
+      android:paddingStart="16dp" android:paddingTop="14dp" android:paddingEnd="16dp">
+
+      <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal"
+        android:gravity="center_vertical" android:background="@drawable/bg_card" android:padding="14dp">
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="키즈노트 계정"
+            android:textColor="@color/text_primary" android:textStyle="bold" android:textSize="15sp" />
+          <TextView android:id="@+id/loginStatusBadge" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="7dp" android:background="@drawable/bg_status_off" android:text="●  로그인 필요"
+            android:textColor="@color/danger_text" android:textStyle="bold" android:textSize="12sp" />
+          <TextView android:id="@+id/loginStatusDetail" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="7dp" android:text="사진을 가져오려면 먼저 연결해 주세요"
+            android:textColor="@color/text_secondary" android:textSize="12sp" />
+        </LinearLayout>
+        <Button android:id="@+id/loginButton" android:layout_width="wrap_content" android:layout_height="46dp"
+          android:layout_marginStart="12dp" android:minWidth="92dp" android:text="로그인" android:textAllCaps="false"
+          android:textColor="@color/white" android:textStyle="bold" android:backgroundTint="@color/panel" />
+      </LinearLayout>
+
+      <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp"
+        android:orientation="vertical" android:background="@drawable/bg_card" android:padding="14dp">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="사진 가져오기"
+          android:textColor="@color/text_primary" android:textStyle="bold" android:textSize="15sp" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="3dp"
+          android:text="연도를 선택하면 키즈노트 사진을 갤러리에 불러옵니다"
+          android:textColor="@color/text_secondary" android:textSize="12sp" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="11dp"
+          android:orientation="horizontal">
+          <Spinner android:id="@+id/yearSpinner" android:layout_width="0dp" android:layout_height="match_parent"
+            android:layout_weight="1" android:background="@drawable/bg_spinner" android:spinnerMode="dropdown" />
+          <Button android:id="@+id/loadButton" android:layout_width="wrap_content" android:layout_height="match_parent"
+            android:layout_marginStart="8dp" android:minWidth="132dp" android:text="사진 가져오기" android:textAllCaps="false"
+            android:textColor="@color/mint_dark" android:textStyle="bold" android:backgroundTint="@color/mint" />
+        </LinearLayout>
+      </LinearLayout>
     </LinearLayout>
-    <ProgressBar android:id="@+id/progress" android:layout_width="match_parent" android:layout_height="4dp" android:visibility="gone" style="?android:attr/progressBarStyleHorizontal" />
-    <GridView android:id="@+id/gallery" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:layout_marginTop="8dp" android:numColumns="3" android:horizontalSpacing="4dp" android:verticalSpacing="4dp" android:stretchMode="columnWidth" />
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="15dp"
+      android:gravity="center_vertical" android:orientation="horizontal" android:paddingStart="18dp" android:paddingEnd="16dp" android:paddingBottom="10dp">
+      <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+        <TextView android:id="@+id/galleryTitle" android:layout_width="wrap_content" android:layout_height="wrap_content"
+          android:text="사진 갤러리" android:textColor="@color/text_primary" android:textStyle="bold" android:textSize="18sp" />
+        <TextView android:id="@+id/countText" android:layout_width="wrap_content" android:layout_height="wrap_content"
+          android:layout_marginTop="2dp" android:text="가져온 사진이 없습니다" android:textColor="@color/text_secondary" android:textSize="12sp" />
+      </LinearLayout>
+      <Button android:id="@+id/downloadButton" android:layout_width="wrap_content" android:layout_height="44dp"
+        android:enabled="false" android:text="기기에 백업" android:textAllCaps="false" android:textStyle="bold"
+        android:textColor="@color/white" android:backgroundTint="@color/panel" />
+    </LinearLayout>
+
+    <ProgressBar android:id="@+id/progress" android:layout_width="match_parent" android:layout_height="3dp"
+      android:visibility="gone" style="?android:attr/progressBarStyleHorizontal" android:progressTint="@color/mint" />
+
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+      <GridView android:id="@+id/gallery" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:paddingStart="8dp" android:paddingEnd="8dp" android:paddingBottom="8dp" android:clipToPadding="false"
+        android:numColumns="auto_fit" android:columnWidth="132dp" android:horizontalSpacing="4dp" android:verticalSpacing="4dp"
+        android:stretchMode="columnWidth" android:listSelector="@android:color/transparent" />
+      <LinearLayout android:id="@+id/emptyState" android:layout_width="match_parent" android:layout_height="match_parent"
+        android:gravity="center" android:orientation="vertical" android:padding="32dp">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="▧"
+          android:textColor="#B5C4C1" android:textSize="44sp" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp"
+          android:text="아직 가져온 사진이 없어요" android:textColor="@color/text_primary" android:textStyle="bold" android:textSize="16sp" />
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="5dp"
+          android:text="로그인 후 연도를 골라 사진을 가져와 보세요" android:textColor="@color/text_secondary" android:textSize="13sp" />
+      </LinearLayout>
+    </FrameLayout>
   </LinearLayout>
-  <LinearLayout android:id="@+id/webPanel" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="@color/navy" android:visibility="gone">
-    <Button android:id="@+id/closeWebButton" android:layout_width="match_parent" android:layout_height="48dp" android:text="로그인 화면 닫기" />
+
+  <LinearLayout android:id="@+id/webPanel" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="@color/white" android:visibility="gone">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="60dp" android:gravity="center_vertical"
+      android:orientation="horizontal" android:background="@color/navy" android:paddingStart="16dp" android:paddingEnd="10dp">
+      <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+        android:text="키즈노트 로그인" android:textColor="@color/white" android:textStyle="bold" android:textSize="18sp" />
+      <Button android:id="@+id/closeWebButton" android:layout_width="wrap_content" android:layout_height="44dp"
+        android:text="닫기" android:textAllCaps="false" android:textColor="@color/white" android:backgroundTint="@color/panel" />
+    </LinearLayout>
     <WebView android:id="@+id/webView" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
   </LinearLayout>
 </FrameLayout>

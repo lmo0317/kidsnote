@@ -24,25 +24,28 @@ public class MainActivity extends Activity {
   private final ExecutorService io = Executors.newFixedThreadPool(4);
   private final ArrayList<Photo> photos = new ArrayList<>();
   private final HashMap<String, Bitmap> cache = new HashMap<>();
-  private TextView statusText, countText;
+  private TextView countText, galleryTitle, loginStatusBadge, loginStatusDetail;
   private ProgressBar progress;
   private GridView gallery;
   private Spinner yearSpinner;
   private Button downloadButton;
-  private LinearLayout webPanel;
+  private LinearLayout webPanel, emptyState;
   private WebView webView;
   private String childId = "", enrollment = "";
 
   @Override public void onCreate(Bundle state) {
     super.onCreate(state);
     setContentView(R.layout.activity_main);
-    statusText = findViewById(R.id.statusText);
     countText = findViewById(R.id.countText);
+    galleryTitle = findViewById(R.id.galleryTitle);
+    loginStatusBadge = findViewById(R.id.loginStatusBadge);
+    loginStatusDetail = findViewById(R.id.loginStatusDetail);
     progress = findViewById(R.id.progress);
     gallery = findViewById(R.id.gallery);
     yearSpinner = findViewById(R.id.yearSpinner);
     downloadButton = findViewById(R.id.downloadButton);
     webPanel = findViewById(R.id.webPanel);
+    emptyState = findViewById(R.id.emptyState);
     webView = findViewById(R.id.webView);
 
     ArrayList<String> years = new ArrayList<>();
@@ -54,7 +57,7 @@ public class MainActivity extends Activity {
     findViewById(R.id.loginButton).setOnClickListener(v -> openLogin());
     findViewById(R.id.closeWebButton).setOnClickListener(v -> webPanel.setVisibility(View.GONE));
     findViewById(R.id.loadButton).setOnClickListener(v -> loadYear());
-    downloadButton.setOnClickListener(v -> saveAll());
+    downloadButton.setOnClickListener(v -> confirmBackup());
     gallery.setAdapter(new PhotoAdapter());
   }
 
@@ -72,7 +75,7 @@ public class MainActivity extends Activity {
           childId = matcher.group(1);
           String header = request.getRequestHeaders().get("X-Enrollment");
           if (header != null) enrollment = header;
-          runOnUiThread(() -> statusText.setText("키즈노트 연결됨 · 자녀 " + childId));
+          runOnUiThread(() -> showConnected());
         }
         return super.shouldInterceptRequest(view, request);
       }
@@ -86,6 +89,7 @@ public class MainActivity extends Activity {
   }
 
   private void openLogin() {
+    loginStatusDetail.setText("로그인 화면에서 키즈노트 계정을 연결해 주세요");
     webPanel.setVisibility(View.VISIBLE);
     webView.loadUrl("https://www.kidsnote.com/login");
   }
@@ -109,9 +113,11 @@ public class MainActivity extends Activity {
         runOnUiThread(() -> {
           photos.clear(); photos.addAll(found.values()); cache.clear();
           ((BaseAdapter) gallery.getAdapter()).notifyDataSetChanged();
-          countText.setText(photos.size() + "장");
+          galleryTitle.setText(selectedYear() + "년 사진");
+          countText.setText(photos.isEmpty() ? "가져온 사진이 없습니다" : photos.size() + "장의 사진 · 눌러서 크게 보기");
+          emptyState.setVisibility(photos.isEmpty() ? View.VISIBLE : View.GONE);
           downloadButton.setEnabled(!photos.isEmpty());
-          setLoading(false, selectedYear() + "년 사진 " + photos.size() + "장");
+          setLoading(false, photos.isEmpty() ? "사진이 없습니다" : photos.size() + "장의 사진을 가져왔습니다");
         });
       } catch (Exception error) {
         runOnUiThread(() -> setLoading(false, "불러오기 실패: " + error.getMessage()));
@@ -233,6 +239,16 @@ public class MainActivity extends Activity {
     });
   }
 
+  private void confirmBackup() {
+    if (photos.isEmpty()) return;
+    new AlertDialog.Builder(this)
+        .setTitle(selectedYear() + "년 사진을 백업할까요?")
+        .setMessage(photos.size() + "장의 사진을 이 기기의\nPictures/KidsNote/" + selectedYear() + " 폴더에 저장합니다.\n\n갤러리에서 언제든 다시 볼 수 있습니다.")
+        .setNegativeButton("취소", null)
+        .setPositiveButton("백업 시작", (dialog, which) -> saveAll())
+        .show();
+  }
+
   @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
     super.onRequestPermissionsResult(requestCode, permissions, grantResults);
     if (requestCode != STORAGE_PERMISSION_REQUEST) return;
@@ -241,9 +257,41 @@ public class MainActivity extends Activity {
   }
 
   private void setLoading(boolean loading, String message) {
-    statusText.setText(message);
+    countText.setText(message);
     progress.setIndeterminate(loading);
     progress.setVisibility(loading ? View.VISIBLE : View.GONE);
+    findViewById(R.id.loadButton).setEnabled(!loading);
+  }
+
+  private void showConnected() {
+    loginStatusBadge.setText("●  로그인됨");
+    loginStatusBadge.setTextColor(Color.rgb(18, 119, 88));
+    loginStatusBadge.setBackgroundResource(R.drawable.bg_status_on);
+    loginStatusDetail.setText("키즈노트 계정이 연결되었습니다 · 자녀 " + childId);
+    ((Button) findViewById(R.id.loginButton)).setText("다시 로그인");
+  }
+
+  private void showPhoto(Photo photo) {
+    FrameLayout frame = new FrameLayout(this);
+    frame.setBackgroundColor(Color.BLACK);
+    ImageView full = new ImageView(this);
+    full.setScaleType(ImageView.ScaleType.FIT_CENTER);
+    frame.addView(full, new FrameLayout.LayoutParams(-1, -1));
+    ProgressBar loading = new ProgressBar(this);
+    FrameLayout.LayoutParams loadingParams = new FrameLayout.LayoutParams(dp(48), dp(48), Gravity.CENTER);
+    frame.addView(loading, loadingParams);
+    Dialog dialog = new Dialog(this, android.R.style.Theme_Black_NoTitleBar_Fullscreen);
+    dialog.setContentView(frame);
+    frame.setOnClickListener(v -> dialog.dismiss());
+    dialog.show();
+    io.execute(() -> {
+      try {
+        Bitmap bitmap = loadBitmap(photo.url);
+        runOnUiThread(() -> { loading.setVisibility(View.GONE); full.setImageBitmap(bitmap); });
+      } catch (Exception error) {
+        runOnUiThread(() -> { dialog.dismiss(); Toast.makeText(this, "사진을 열 수 없습니다.", Toast.LENGTH_SHORT).show(); });
+      }
+    });
   }
 
   private static String first(JSONObject object, String... keys) {
@@ -267,6 +315,7 @@ public class MainActivity extends Activity {
       image.setBackgroundColor(Color.rgb(16, 27, 38));
       image.setImageDrawable(null);
       String url = photos.get(position).url;
+      image.setOnClickListener(v -> showPhoto(photos.get(position)));
       io.execute(() -> {
         try { Bitmap bitmap = loadBitmap(url); runOnUiThread(() -> { if (url.equals(image.getTag())) image.setImageBitmap(bitmap); }); }
         catch (Exception ignored) {}
