@@ -34,7 +34,19 @@ public class MainActivity extends Activity {
   private Button downloadButton;
   private LinearLayout webPanel, emptyState;
   private WebView webView;
-  private String childId = "", enrollment = "";
+  private volatile String childId = "", enrollment = "";
+  private final Handler mainHandler = new Handler(Looper.getMainLooper());
+  private boolean sessionChecking = false, pendingLoad = false;
+  private final Runnable sessionTimeout = () -> {
+    if (!childId.isEmpty()) return;
+    sessionChecking = false;
+    if (pendingLoad) {
+      pendingLoad = false;
+      setLoading(false, "로그인이 필요합니다");
+      Toast.makeText(this, "먼저 로그인 버튼으로 키즈노트를 연결해 주세요.", Toast.LENGTH_LONG).show();
+    }
+    showDisconnected();
+  };
 
   @Override public void onCreate(Bundle state) {
     super.onCreate(state);
@@ -57,6 +69,7 @@ public class MainActivity extends Activity {
     yearSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, years));
 
     setupWebView();
+    restoreSessionSilently();
     findViewById(R.id.loginButton).setOnClickListener(v -> openLogin());
     findViewById(R.id.closeWebButton).setOnClickListener(v -> webPanel.setVisibility(View.GONE));
     findViewById(R.id.loadButton).setOnClickListener(v -> loadYear());
@@ -78,12 +91,28 @@ public class MainActivity extends Activity {
           childId = matcher.group(1);
           String header = request.getRequestHeaders().get("X-Enrollment");
           if (header != null) enrollment = header;
-          runOnUiThread(() -> showConnected());
+          runOnUiThread(() -> {
+            mainHandler.removeCallbacks(sessionTimeout);
+            sessionChecking = false;
+            showConnected();
+            webPanel.setVisibility(View.GONE);
+            if (pendingLoad) {
+              pendingLoad = false;
+              setLoading(false, "로그인 확인 완료");
+              loadYear();
+            }
+          });
         }
         return super.shouldInterceptRequest(view, request);
       }
       @Override public void onPageFinished(WebView view, String url) {
-        if (!url.matches(".*\\/(?:[a-z]{2}\\/)?login(?:[/?].*)?$")) {
+        if (url.matches(".*\\/(?:[a-z]{2}\\/)?login(?:[/?].*)?$")) {
+          if (webPanel.getVisibility() != View.VISIBLE) {
+            mainHandler.removeCallbacks(sessionTimeout);
+            sessionChecking = false;
+            showDisconnected();
+          }
+        } else {
           if (!url.contains("/service/report")) view.loadUrl("https://www.kidsnote.com/service/report");
           else if (!childId.isEmpty()) webPanel.setVisibility(View.GONE);
         }
@@ -92,9 +121,21 @@ public class MainActivity extends Activity {
   }
 
   private void openLogin() {
+    mainHandler.removeCallbacks(sessionTimeout);
+    sessionChecking = false;
+    pendingLoad = false;
     loginStatusDetail.setText("로그인 화면에서 키즈노트 계정을 연결해 주세요");
     webPanel.setVisibility(View.VISIBLE);
     webView.loadUrl("https://www.kidsnote.com/login");
+  }
+
+  private void restoreSessionSilently() {
+    sessionChecking = true;
+    loginStatusDetail.setText("저장된 로그인 상태를 확인하는 중입니다");
+    webPanel.setVisibility(View.GONE);
+    webView.loadUrl("https://www.kidsnote.com/service/report");
+    mainHandler.removeCallbacks(sessionTimeout);
+    mainHandler.postDelayed(sessionTimeout, 8000);
   }
 
   private String selectedYear() {
@@ -103,8 +144,12 @@ public class MainActivity extends Activity {
 
   private void loadYear() {
     if (childId.isEmpty()) {
-      Toast.makeText(this, "먼저 키즈노트에 로그인해 주세요.", Toast.LENGTH_SHORT).show();
-      openLogin();
+      if (sessionChecking) {
+        pendingLoad = true;
+        setLoading(true, "로그인 상태를 확인하는 중");
+      } else {
+        Toast.makeText(this, "먼저 로그인 버튼으로 키즈노트를 연결해 주세요.", Toast.LENGTH_LONG).show();
+      }
       return;
     }
     final String year = selectedYear();
@@ -314,6 +359,14 @@ public class MainActivity extends Activity {
     ((Button) findViewById(R.id.loginButton)).setText("다시 로그인");
   }
 
+  private void showDisconnected() {
+    loginStatusBadge.setText("●  로그인 필요");
+    loginStatusBadge.setTextColor(Color.rgb(179, 68, 60));
+    loginStatusBadge.setBackgroundResource(R.drawable.bg_status_off);
+    loginStatusDetail.setText("사진 목록을 불러오려면 로그인해 주세요");
+    ((Button) findViewById(R.id.loginButton)).setText("로그인");
+  }
+
   private void showPhoto(Photo photo) {
     FrameLayout frame = new FrameLayout(this);
     frame.setBackgroundColor(Color.BLACK);
@@ -375,5 +428,5 @@ public class MainActivity extends Activity {
   private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density); }
   private static class Photo { final String url; Photo(String url) { this.url = url; } }
 
-  @Override protected void onDestroy() { webView.destroy(); io.shutdownNow(); super.onDestroy(); }
+  @Override protected void onDestroy() { mainHandler.removeCallbacks(sessionTimeout); webView.destroy(); io.shutdownNow(); super.onDestroy(); }
 }
