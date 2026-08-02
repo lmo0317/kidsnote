@@ -752,10 +752,18 @@ public class MainActivity extends Activity {
           return true;
         }
         @Override public boolean onFling(MotionEvent first, MotionEvent last, float velocityX, float velocityY) {
-          if (zoom > 1f || first == null || last == null || photoSwipeListener == null) return false;
+          if (first == null || last == null || photoSwipeListener == null) return false;
           float distance = last.getX() - first.getX();
           float threshold = 56f * getResources().getDisplayMetrics().density;
           if (Math.abs(distance) < threshold || Math.abs(velocityX) < Math.abs(velocityY)) return false;
+          if (zoom > 1f) {
+            RectF bounds = mappedBounds();
+            float tolerance = 3f * getResources().getDisplayMetrics().density;
+            boolean atRequestedEdge = distance < 0
+                ? bounds.right <= getWidth() + tolerance
+                : bounds.left >= -tolerance;
+            if (!atRequestedEdge) return false;
+          }
           photoSwipeListener.onSwipe(distance < 0 ? 1 : -1);
           return true;
         }
@@ -809,8 +817,7 @@ public class MainActivity extends Activity {
     private void fixBounds() {
       android.graphics.drawable.Drawable drawable = getDrawable();
       if (drawable == null) return;
-      RectF bounds = new RectF(0, 0, drawable.getIntrinsicWidth(), drawable.getIntrinsicHeight());
-      zoomMatrix.mapRect(bounds);
+      RectF bounds = mappedBounds();
       float dx = 0f, dy = 0f;
       if (bounds.width() <= getWidth()) dx = (getWidth() - bounds.width()) / 2f - bounds.left;
       else if (bounds.left > 0) dx = -bounds.left;
@@ -819,6 +826,14 @@ public class MainActivity extends Activity {
       else if (bounds.top > 0) dy = -bounds.top;
       else if (bounds.bottom < getHeight()) dy = getHeight() - bounds.bottom;
       zoomMatrix.postTranslate(dx, dy);
+    }
+
+    private RectF mappedBounds() {
+      android.graphics.drawable.Drawable drawable = getDrawable();
+      if (drawable == null) return new RectF();
+      RectF bounds = new RectF(0, 0, drawable.getIntrinsicWidth(), drawable.getIntrinsicHeight());
+      zoomMatrix.mapRect(bounds);
+      return bounds;
     }
   }
   private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density); }
