@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KidsNote Photo Backup</title>
+  <link rel="icon" href="data:,">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="/photo.css?v=20260724-1">
+</head>
+<body>
+  <main class="photo-shell">
+    <header class="photo-header">
+      <div>
+        <span class="back-link"><i data-lucide="images"></i><span>KidsNote Photo</span></span>
+        <h1>키즈노트 사진 백업</h1>
+        <p>추억알림장과 추억앨범 페이지를 자동으로 돌면서 사진을 서버에 저장합니다.</p>
+      </div>
+      <div class="photo-stats">
+        <div>
+          <span id="photo-count">0</span>
+          <small>백업 사진</small>
+        </div>
+        <div>
+          <span id="photo-size">0 MB</span>
+          <small>사용량</small>
+        </div>
+      </div>
+    </header>
+
+    <section class="backup-panel">
+      <div class="connection-row">
+        <div id="session-state" class="session-state">
+          <i data-lucide="link"></i>
+          <span>키즈노트 연결 확인 중</span>
+        </div>
+        <div class="connection-actions">
+          <button id="btn-kidsnote-session" class="btn btn-primary" type="button">
+            <i data-lucide="log-in"></i><span>키즈노트 로그인</span>
+          </button>
+          <button id="btn-refresh" class="btn btn-secondary" type="button">
+            <i data-lucide="refresh-cw"></i><span>새로고침</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="backup-targets">
+        <div><i data-lucide="notebook-tabs"></i><span>추억알림장</span><small>/service/report</small></div>
+        <div><i data-lucide="images"></i><span>추억앨범</span><small>/service/album</small></div>
+      </div>
+
+      <label class="extra-url-field" for="extra-url">
+        <span>특정 상세 페이지 추가</span>
+        <input id="extra-url" type="url" placeholder="https://www.kidsnote.com/service/report/1354433618">
+      </label>
+
+      <button id="btn-start-backup" class="btn btn-primary backup-button" type="button" disabled>
+        <i data-lucide="download-cloud"></i><span>키즈노트 사진 전체 백업 시작</span>
+      </button>
+
+      <div id="progress-panel" class="progress-panel hidden">
+        <div class="progress-top">
+          <strong id="progress-title">백업 준비 중</strong>
+          <span id="progress-count">0 / 0</span>
+        </div>
+        <div class="progress-bar"><div id="progress-fill"></div></div>
+        <div id="progress-detail" class="progress-detail"></div>
+      </div>
+    </section>
+
+    <section class="gallery-panel">
+      <div class="gallery-toolbar">
+        <h2>백업된 사진</h2>
+        <div class="gallery-controls">
+          <button id="btn-download-all" class="btn btn-primary" type="button" disabled>
+            <i data-lucide="archive"></i><span>전체 사진 압축 다운로드</span>
+          </button>
+          <select id="sort-select" aria-label="정렬">
+            <option value="sourceDateDesc">글 날짜 최신순</option>
+            <option value="sourceDateAsc">글 날짜 오래된순</option>
+            <option value="uploadedDesc">백업 최신순</option>
+            <option value="uploadedAsc">백업 오래된순</option>
+          </select>
+          <div class="search-box">
+            <i data-lucide="search"></i>
+            <input id="search-input" type="search" placeholder="파일명 또는 출처 검색">
+          </div>
+        </div>
+      </div>
+      <div id="year-filter" class="year-filter" aria-label="연도별 사진 보기"></div>
+      <div id="gallery" class="gallery"></div>
+      <button id="btn-load-more" class="btn btn-secondary load-more hidden" type="button">
+        <i data-lucide="chevrons-down"></i><span>더 보기</span>
+      </button>
+      <div id="empty-state" class="empty-state hidden">
+        <i data-lucide="images"></i>
+        <p>아직 백업된 키즈노트 사진이 없습니다.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="kidsnote-login-modal" class="login-modal hidden" aria-hidden="true">
+    <section class="login-dialog" role="dialog" aria-modal="true" aria-labelledby="kidsnote-login-title" aria-describedby="kidsnote-login-description">
+      <button id="kidsnote-login-close" class="login-close" type="button" aria-label="로그인 창 닫기">
+        <i data-lucide="x"></i>
+      </button>
+      <div class="login-heading">
+        <span class="login-icon"><i data-lucide="notebook-tabs"></i></span>
+        <div>
+          <p>KidsNote connection</p>
+          <h2 id="kidsnote-login-title">키즈노트 로그인</h2>
+        </div>
+      </div>
+      <p id="kidsnote-login-description" class="login-description">사진을 백업하려면 키즈노트 계정을 연결해 주세요.</p>
+
+      <div class="login-security-note">
+        <i data-lucide="shield-check"></i>
+        <span>비밀번호는 저장하지 않고 로그인 세션만 저장합니다. 현재 HTTP 내부망에서는 테스트 용도로만 사용하세요.</span>
+      </div>
+
+      <form id="kidsnote-login-form" class="login-form">
+        <label for="kidsnote-username">
+          <span>아이디</span>
+          <input id="kidsnote-username" name="username" autocomplete="username" autocapitalize="off" required placeholder="키즈노트 아이디">
+        </label>
+        <label for="kidsnote-password">
+          <span>비밀번호</span>
+          <input id="kidsnote-password" name="password" type="password" autocomplete="current-password" required placeholder="키즈노트 비밀번호">
+        </label>
+        <p id="kidsnote-login-error" class="login-error hidden" role="alert"></p>
+        <button id="btn-kidsnote-login" class="btn btn-primary login-submit" type="submit">
+          <i data-lucide="log-in"></i><span>로그인하고 사진 백업 연결</span>
+        </button>
+      </form>
+    </section>
+  </div>
+
+  <div id="photo-viewer" class="photo-viewer hidden" aria-hidden="true">
+    <button id="viewer-close" class="viewer-close" type="button" aria-label="닫기">
+      <i data-lucide="x"></i>
+    </button>
+    <div class="viewer-frame" role="dialog" aria-modal="true" aria-label="사진 크게 보기">
+      <img id="viewer-image" alt="">
+      <div class="viewer-caption">
+        <strong id="viewer-title"></strong>
+        <span id="viewer-detail"></span>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+  <script src="/photo.js?v=20260724-1"></script>
+</body>
+</html>

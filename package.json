@@ -1,0 +1,19 @@
+{
+  "name": "kidsnote-photo-backup",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Standalone KidsNote photo backup and download app",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check public/photo.js"
+  },
+  "dependencies": {
+    "archiver": "7.0.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "morgan": "^1.10.0",
+    "puppeteer-core": "^24.43.0"
+  }
+}

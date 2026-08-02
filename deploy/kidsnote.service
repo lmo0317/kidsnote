@@ -1,0 +1,19 @@
+[Unit]
+Description=KidsNote Photo Backup Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/lmo0317/apps/kidsnote
+ExecStart=/usr/bin/node server.js
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=production
+Environment=PORT=3100
+Environment=PHOTO_BACKUP_DIR=/home/lmo0317/apps/planner/data/photo-backups
+Environment=CHROMIUM_EXECUTABLE=/snap/bin/chromium
+EnvironmentFile=/home/lmo0317/apps/kidsnote/.env
+
+[Install]
+WantedBy=default.target
