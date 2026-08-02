@@ -85,6 +85,9 @@ public class MainActivity extends Activity {
     findViewById(R.id.loadButton).setOnClickListener(v -> loadYear());
     downloadButton.setOnClickListener(v -> confirmBackup());
     gallery.setAdapter(new PhotoAdapter());
+    gallery.setOnItemClickListener((parent, view, position, id) -> {
+      if (position >= 0 && position < photos.size()) showPhoto(photos.get(position));
+    });
     networkIo.execute(this::trimThumbnailDiskCache);
   }
 
@@ -591,7 +594,6 @@ public class MainActivity extends Activity {
       image.setBackgroundColor(Color.rgb(226, 234, 232));
       image.setImageDrawable(null);
       String url = photos.get(position).url;
-      image.setOnClickListener(v -> showPhoto(photos.get(position)));
       Bitmap cached = thumbnailCache.get(url);
       if (cached != null) image.setImageBitmap(cached);
       else {
