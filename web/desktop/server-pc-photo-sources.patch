@@ -1,0 +1,15 @@
+--- server.js
++++ server.js
+@@ -1096,4 +1096,12 @@
+   res.json({ status: 'processing', progress: job.progress });
+ });
+ 
++require('./pc-photo-sources')(app, {
++  getSavedKidsNoteSession,
++  fetchKidsNoteCollection,
++  getKidsNoteImageUrlsFromItem,
++  getKidsNoteItemDate,
++  getKidsNoteItemTitle
++});
++
+ setInterval(() => {

@@ -1,0 +1,21 @@
+--- server.js
++++ server.js
+@@ -302,9 +302,20 @@
+ 
+ // API Routes
+ app.get('/photo', (req, res) => {
++  res.setHeader('Cache-Control', 'no-store');
++  res.sendFile(path.join(__dirname, 'public', 'photo-router.html'));
++});
++
++app.get('/photo/pc', (req, res) => {
+   res.sendFile(path.join(__dirname, 'public', 'photo.html'));
+ });
+ 
++app.get('/photo/m', (req, res) => {
++  res.sendFile(path.join(__dirname, 'public', 'photo-mobile.html'));
++});
++
+ app.get('/api/photos', (req, res) => {
+   const sort = String(req.query.sort || 'sourceDateDesc');
+   const offset = Math.max(0, Number(req.query.offset) || 0);

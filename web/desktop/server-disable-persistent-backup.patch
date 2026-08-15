@@ -1,0 +1,13 @@
+--- server.js
++++ server.js
+@@ -34,6 +34,11 @@
+ app.use(express.json({ limit: '1mb' }));
+ app.use(express.urlencoded({ limit: '1mb', extended: true }));
+ app.use(express.static(path.join(__dirname, 'public'), { etag: true, maxAge: '1h' }));
++app.use('/api/photos/kidsnote-backup', (req, res) => {
++  res.status(410).json({
++    error: '서버 저장 방식은 중단되었습니다. 새 날짜별 PC 다운로드 화면을 이용해 주세요.'
++  });
++});
+ 
+ function ensurePhotoBackupStore() {
