@@ -53,7 +53,8 @@ public class MainActivity extends Activity {
   private Photo pendingSingleSave;
   private Button pendingSingleSaveButton;
   private final Handler mainHandler = new Handler(Looper.getMainLooper());
-  private boolean sessionChecking = false, pendingLoad = false, resettingLogin = false;
+  private boolean sessionChecking = false, pendingLoad = false, resettingLogin = false,
+      loginVerificationStarted = false;
   private volatile int loadGeneration = 0;
   private final Runnable sessionTimeout = () -> {
     if (!childId.isEmpty()) return;
@@ -442,6 +443,7 @@ public class MainActivity extends Activity {
       }
       @Override public void onPageFinished(WebView view, String url) {
         if (resettingLogin) return;
+        installLoginNavigationCapture();
         if (url.matches(".*\\/(?:[a-z]{2}\\/)?login(?:[/?].*)?$")) {
           webView.setVisibility(View.VISIBLE);
           installLoginIdCapture();
@@ -463,6 +465,7 @@ public class MainActivity extends Activity {
     sessionChecking = false;
     pendingLoad = false;
     resettingLogin = true;
+    loginVerificationStarted = false;
     childId = "";
     enrollment = "";
     loginId = "";
@@ -496,6 +499,23 @@ public class MainActivity extends Activity {
         "})();", null);
   }
 
+  private void installLoginNavigationCapture() {
+    webView.evaluateJavascript("(function(){" +
+        "if(window.__kidsNoteNavigationCapture)return;window.__kidsNoteNavigationCapture=true;" +
+        "var last=location.href;function report(){var now=location.href;if(now!==last){last=now;window.KidsNoteGallery.captureNavigation(now);}}" +
+        "setInterval(report,250);window.addEventListener('popstate',report);window.addEventListener('hashchange',report);" +
+        "})();", null);
+  }
+
+  private void verifyLoginAfterNavigation(String url) {
+    if (resettingLogin || loginVerificationStarted || url == null ||
+        url.matches(".*\\/(?:[a-z]{2}\\/)?login(?:[/?#].*)?$")) return;
+    loginVerificationStarted = true;
+    sessionChecking = true;
+    loginStatusDetail.setText("로그인 완료를 확인하는 중입니다");
+    webView.loadUrl("https://www.kidsnote.com/service/report");
+  }
+
   private class LoginIdBridge {
     @JavascriptInterface public void captureLoginId(String value) {
       if (value == null) return;
@@ -503,6 +523,10 @@ public class MainActivity extends Activity {
       if (cleaned.isEmpty() || cleaned.length() > 100) return;
       loginId = cleaned;
       getPreferences(MODE_PRIVATE).edit().putString("login_id", cleaned).apply();
+    }
+
+    @JavascriptInterface public void captureNavigation(String url) {
+      runOnUiThread(() -> verifyLoginAfterNavigation(url));
     }
   }
 
