@@ -37,7 +37,8 @@ public class MainActivity extends Activity {
     @Override protected int sizeOf(String key, Bitmap bitmap) { return bitmap.getByteCount(); }
   };
   private TextView countText, galleryTitle, loginStatusBadge, loginStatusDetail, previewTab, savedTab, savedCountText,
-      albumNavButton, scheduleNavButton, scheduleCountText;
+      albumNavLabel, scheduleNavLabel, scheduleCountText;
+  private ImageView albumNavIcon, scheduleNavIcon;
   private ProgressBar progress;
   private GridView gallery, savedGallery;
   private ScaleGestureDetector galleryScaleDetector;
@@ -47,7 +48,7 @@ public class MainActivity extends Activity {
   private ListView scheduleList;
   private Button downloadButton;
   private LinearLayout webPanel, emptyState, savedEmptyState, previewTabContent, savedTabContent,
-      albumPage, schedulePage, scheduleEmptyState;
+      albumPage, schedulePage, scheduleEmptyState, albumNavButton, scheduleNavButton;
   private WebView webView;
   private volatile String childId = "", enrollment = "", loginId = "";
   private Photo pendingSingleSave;
@@ -94,6 +95,10 @@ public class MainActivity extends Activity {
     scheduleEmptyState = findViewById(R.id.scheduleEmptyState);
     albumNavButton = findViewById(R.id.albumNavButton);
     scheduleNavButton = findViewById(R.id.scheduleNavButton);
+    albumNavIcon = findViewById(R.id.albumNavIcon);
+    scheduleNavIcon = findViewById(R.id.scheduleNavIcon);
+    albumNavLabel = findViewById(R.id.albumNavLabel);
+    scheduleNavLabel = findViewById(R.id.scheduleNavLabel);
     scheduleCountText = findViewById(R.id.scheduleCountText);
     scheduleYearSpinner = findViewById(R.id.scheduleYearSpinner);
     scheduleList = findViewById(R.id.scheduleList);
@@ -223,8 +228,14 @@ public class MainActivity extends Activity {
   private void showMainPage(boolean schedule) {
     albumPage.setVisibility(schedule ? View.GONE : View.VISIBLE);
     schedulePage.setVisibility(schedule ? View.VISIBLE : View.GONE);
-    albumNavButton.setTextColor(getColor(schedule ? R.color.text_secondary : R.color.mint_dark));
-    scheduleNavButton.setTextColor(getColor(schedule ? R.color.mint_dark : R.color.text_secondary));
+    int albumColor = getColor(schedule ? R.color.text_secondary : R.color.mint_dark);
+    int scheduleColor = getColor(schedule ? R.color.mint_dark : R.color.text_secondary);
+    albumNavLabel.setTextColor(albumColor);
+    scheduleNavLabel.setTextColor(scheduleColor);
+    albumNavIcon.setColorFilter(albumColor);
+    scheduleNavIcon.setColorFilter(scheduleColor);
+    albumNavButton.setBackgroundResource(schedule ? android.R.color.transparent : R.drawable.bg_bottom_nav_selected);
+    scheduleNavButton.setBackgroundResource(schedule ? R.drawable.bg_bottom_nav_selected : android.R.color.transparent);
   }
 
   private void loadSchedules() {
