@@ -3,26 +3,45 @@
 
   <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical"
     android:background="@color/surface">
-    <LinearLayout android:layout_width="match_parent" android:layout_height="72dp" android:orientation="horizontal"
-      android:gravity="center_vertical" android:background="@color/navy" android:paddingStart="16dp" android:paddingEnd="10dp">
+    <LinearLayout android:id="@+id/appHeader" android:layout_width="match_parent" android:layout_height="76dp" android:orientation="horizontal"
+      android:gravity="center_vertical" android:background="@color/navy" android:paddingStart="18dp" android:paddingEnd="14dp">
       <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="키즈노트 갤러리"
-          android:textColor="@color/white" android:textStyle="bold" android:textSize="20sp" />
+          android:textColor="@color/white" android:textStyle="bold" android:textSize="19sp" />
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp"
           android:orientation="horizontal" android:gravity="center_vertical">
           <TextView android:id="@+id/loginStatusBadge" android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:background="@drawable/bg_status_off" android:text="●  로그인 필요" android:textColor="@color/danger_text"
             android:textStyle="bold" android:textSize="10sp" />
           <TextView android:id="@+id/loginStatusDetail" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:layout_marginStart="8dp" android:maxLines="1" android:ellipsize="end"
-            android:text="키즈노트 계정을 연결해 주세요" android:textColor="#9DB1BA" android:textSize="10sp" />
+            android:layout_weight="1" android:layout_marginStart="7dp" android:maxLines="1" android:ellipsize="end"
+            android:text="계정을 연결해 주세요" android:textColor="#9DB1BA" android:textSize="10sp" />
         </LinearLayout>
       </LinearLayout>
-      <Button android:id="@+id/loginButton" android:layout_width="wrap_content" android:layout_height="42dp"
-        android:minWidth="82dp" android:layout_marginStart="8dp" android:text="로그인" android:textAllCaps="false"
-        android:textColor="@color/white" android:textStyle="bold" android:backgroundTint="@color/panel" />
+      <Button android:id="@+id/loginButton" android:layout_width="wrap_content" android:layout_height="36dp"
+        android:minWidth="76dp" android:minHeight="0dp" android:layout_marginStart="10dp" android:paddingStart="12dp"
+        android:paddingEnd="12dp" android:text="로그인" android:textSize="12sp" android:textAllCaps="false"
+        android:textColor="@color/white" android:textStyle="bold" android:background="@drawable/bg_header_action" />
     </LinearLayout>
 
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+    <LinearLayout android:id="@+id/albumPage" android:layout_width="match_parent" android:layout_height="match_parent"
+      android:orientation="vertical">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="48dp" android:orientation="horizontal"
+      android:background="@color/white" android:paddingStart="12dp" android:paddingEnd="12dp">
+      <TextView android:id="@+id/previewTab" android:layout_width="0dp" android:layout_height="match_parent"
+        android:layout_weight="1" android:gravity="center" android:text="사진 가져오기"
+        android:textColor="@color/mint_dark" android:textStyle="bold" android:textSize="14sp"
+        android:background="@drawable/bg_tab_selected" />
+      <TextView android:id="@+id/savedTab" android:layout_width="0dp" android:layout_height="match_parent"
+        android:layout_weight="1" android:gravity="center" android:text="저장된 갤러리"
+        android:textColor="@color/text_secondary" android:textStyle="bold" android:textSize="14sp"
+        android:background="@drawable/bg_tab_unselected" />
+    </LinearLayout>
+
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+    <LinearLayout android:id="@+id/previewTabContent" android:layout_width="match_parent" android:layout_height="match_parent"
+      android:orientation="vertical">
     <LinearLayout android:layout_width="match_parent" android:layout_height="68dp" android:orientation="horizontal"
       android:gravity="center_vertical" android:background="@color/white" android:paddingStart="12dp" android:paddingEnd="12dp">
       <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="연도"
@@ -65,6 +84,86 @@
           android:text="연도를 선택해 사진을 불러오세요" android:textColor="@color/text_secondary" android:textSize="13sp" />
       </LinearLayout>
     </FrameLayout>
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/savedTabContent" android:layout_width="match_parent" android:layout_height="match_parent"
+      android:orientation="vertical" android:visibility="gone">
+      <LinearLayout android:layout_width="match_parent" android:layout_height="64dp" android:gravity="center_vertical"
+        android:orientation="horizontal" android:paddingStart="16dp" android:paddingEnd="12dp">
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+          android:orientation="vertical">
+          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="저장된 사진"
+            android:textColor="@color/text_primary" android:textStyle="bold" android:textSize="17sp" />
+          <TextView android:id="@+id/savedCountText" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:layout_marginTop="1dp" android:text="저장된 사진을 확인하는 중" android:textColor="@color/text_secondary" android:textSize="11sp" />
+        </LinearLayout>
+        <Spinner android:id="@+id/savedYearSpinner" android:layout_width="128dp" android:layout_height="46dp"
+          android:background="@drawable/bg_spinner" android:spinnerMode="dropdown" />
+      </LinearLayout>
+      <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/line" />
+      <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <GridView android:id="@+id/savedGallery" android:layout_width="match_parent" android:layout_height="match_parent"
+          android:padding="4dp" android:clipToPadding="false" android:numColumns="3"
+          android:horizontalSpacing="3dp" android:verticalSpacing="3dp" android:stretchMode="columnWidth"
+          android:listSelector="@android:color/transparent" />
+        <LinearLayout android:id="@+id/savedEmptyState" android:layout_width="match_parent" android:layout_height="match_parent"
+          android:gravity="center" android:orientation="vertical" android:padding="24dp">
+          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="▧"
+            android:textColor="#B5C4C1" android:textSize="40sp" />
+          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp"
+            android:text="저장된 키즈노트 사진이 없습니다" android:textColor="@color/text_secondary" android:textSize="13sp" />
+          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp"
+            android:text="사진 가져오기 탭에서 원본을 저장해 보세요" android:textColor="#8A999E" android:textSize="11sp" />
+        </LinearLayout>
+      </FrameLayout>
+    </LinearLayout>
+    </FrameLayout>
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/schedulePage" android:layout_width="match_parent" android:layout_height="match_parent"
+      android:orientation="vertical" android:visibility="gone">
+      <LinearLayout android:layout_width="match_parent" android:layout_height="70dp" android:gravity="center_vertical"
+        android:orientation="horizontal" android:background="@color/white" android:paddingStart="12dp" android:paddingEnd="12dp">
+        <Spinner android:id="@+id/scheduleYearSpinner" android:layout_width="0dp" android:layout_height="48dp"
+          android:layout_weight="1" android:background="@drawable/bg_spinner" android:spinnerMode="dropdown" />
+        <Button android:id="@+id/analyzeScheduleButton" android:layout_width="wrap_content" android:layout_height="48dp"
+          android:layout_marginStart="8dp" android:minWidth="136dp" android:text="일정 불러오기" android:textAllCaps="false"
+          android:textColor="@color/mint_dark" android:textStyle="bold" android:backgroundTint="@color/mint" />
+      </LinearLayout>
+      <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/line" />
+      <LinearLayout android:layout_width="match_parent" android:layout_height="60dp" android:orientation="vertical"
+        android:gravity="center_vertical" android:paddingStart="16dp" android:paddingEnd="12dp">
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="키즈노트 일정"
+          android:textColor="@color/text_primary" android:textStyle="bold" android:textSize="18sp" />
+        <TextView android:id="@+id/scheduleCountText" android:layout_width="wrap_content" android:layout_height="wrap_content"
+          android:layout_marginTop="2dp" android:text="연도를 선택해 일정을 불러오세요" android:textColor="@color/text_secondary" android:textSize="11sp" />
+      </LinearLayout>
+      <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <ListView android:id="@+id/scheduleList" android:layout_width="match_parent" android:layout_height="match_parent"
+          android:padding="10dp" android:clipToPadding="false" android:divider="@android:color/transparent"
+          android:dividerHeight="8dp" android:listSelector="@android:color/transparent" />
+        <LinearLayout android:id="@+id/scheduleEmptyState" android:layout_width="match_parent" android:layout_height="match_parent"
+          android:gravity="center" android:orientation="vertical" android:padding="28dp">
+          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="□"
+            android:textColor="#B5C4C1" android:textSize="42sp" />
+          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp"
+            android:text="명시된 날짜가 있는 일정을 모아 보여줍니다" android:textColor="@color/text_secondary" android:textSize="13sp" />
+          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="5dp"
+            android:text="AI를 사용하지 않고 날짜와 시간 표현만 분석합니다" android:textColor="#8A999E" android:textSize="11sp" />
+        </LinearLayout>
+      </FrameLayout>
+    </LinearLayout>
+    </FrameLayout>
+
+    <LinearLayout android:layout_width="match_parent" android:layout_height="62dp" android:orientation="horizontal"
+      android:background="@color/white" android:paddingStart="10dp" android:paddingEnd="10dp" android:elevation="8dp">
+      <TextView android:id="@+id/albumNavButton" android:layout_width="0dp" android:layout_height="match_parent"
+        android:layout_weight="1" android:gravity="center" android:text="▣  앨범" android:textStyle="bold"
+        android:textSize="14sp" android:textColor="@color/mint_dark" />
+      <TextView android:id="@+id/scheduleNavButton" android:layout_width="0dp" android:layout_height="match_parent"
+        android:layout_weight="1" android:gravity="center" android:text="□  일정 관리" android:textStyle="bold"
+        android:textSize="14sp" android:textColor="@color/text_secondary" />
+    </LinearLayout>
   </LinearLayout>
 
   <LinearLayout android:id="@+id/webPanel" android:layout_width="match_parent" android:layout_height="match_parent"
