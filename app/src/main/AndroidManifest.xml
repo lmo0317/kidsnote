@@ -1,7 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
-    <application android:theme="@style/Theme.KidsNoteGallery" android:label="키즈노트 갤러리" android:usesCleartextTraffic="false">
+    <application android:theme="@style/Theme.KidsNoteGallery" android:label="@string/app_name"
+      android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher"
+      android:allowBackup="false" android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:screenOrientation="portrait" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

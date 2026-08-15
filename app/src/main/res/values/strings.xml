@@ -1,1 +1,4 @@
-<resources><string name="app_name">키즈노트 갤러리</string></resources>
+<resources>
+  <string name="app_name">키즈노트 사진 저장 도우미</string>
+  <string name="app_disclaimer">비공식 사진 저장 도우미 · 키즈노트 운영사와 무관</string>
+</resources>

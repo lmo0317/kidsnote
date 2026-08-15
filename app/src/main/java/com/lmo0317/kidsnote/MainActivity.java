@@ -131,6 +131,7 @@ public class MainActivity extends Activity {
     setupWebView();
     restoreSessionSilently();
     findViewById(R.id.loginButton).setOnClickListener(v -> openLogin());
+    findViewById(R.id.appDisclosure).setOnClickListener(v -> showAppDisclosure());
     findViewById(R.id.closeWebButton).setOnClickListener(v -> webPanel.setVisibility(View.GONE));
     findViewById(R.id.loadButton).setOnClickListener(v -> loadYear());
     downloadButton.setOnClickListener(v -> confirmBackup());
@@ -152,6 +153,18 @@ public class MainActivity extends Activity {
     scheduleList.setAdapter(new ScheduleAdapter());
     setupGalleryPinch();
     networkIo.execute(this::trimThumbnailDiskCache);
+  }
+
+  private void showAppDisclosure() {
+    new AlertDialog.Builder(this)
+        .setTitle("비공식 사진 저장 도우미")
+        .setMessage("이 앱은 키즈노트 사진을 사용자의 기기에 저장하도록 돕는 독립적인 비공식 앱입니다. " +
+            "키즈노트 운영사와 제휴하거나 운영사가 제공하는 공식 앱이 아닙니다.\n\n" +
+            "로그인 정보와 사진은 별도 개발자 서버로 전송하지 않으며, 키즈노트와 사용자 기기 사이에서만 처리합니다.")
+        .setPositiveButton("개인정보처리방침", (dialog, which) -> startActivity(new Intent(Intent.ACTION_VIEW,
+            Uri.parse("https://github.com/lmo0317/kidsnote/blob/main/PRIVACY_POLICY.md"))))
+        .setNegativeButton("닫기", null)
+        .show();
   }
 
   private void applySystemBarInsets() {

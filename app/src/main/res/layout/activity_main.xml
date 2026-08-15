@@ -6,7 +6,7 @@
     <LinearLayout android:id="@+id/appHeader" android:layout_width="match_parent" android:layout_height="76dp" android:orientation="horizontal"
       android:gravity="center_vertical" android:background="@color/navy" android:paddingStart="18dp" android:paddingEnd="14dp">
       <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="키즈노트 갤러리"
+        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/app_name"
           android:textColor="@color/white" android:textStyle="bold" android:textSize="19sp" />
         <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp"
           android:orientation="horizontal" android:gravity="center_vertical">
@@ -23,6 +23,10 @@
         android:paddingEnd="12dp" android:text="로그인" android:textSize="12sp" android:textAllCaps="false"
         android:textColor="@color/white" android:textStyle="bold" android:background="@drawable/bg_header_action" />
     </LinearLayout>
+
+    <TextView android:id="@+id/appDisclosure" android:layout_width="match_parent" android:layout_height="36dp"
+      android:gravity="center" android:background="#E8F4F0" android:text="@string/app_disclaimer"
+      android:textColor="@color/mint_dark" android:textSize="11sp" android:clickable="true" android:focusable="true" />
 
     <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
     <LinearLayout android:id="@+id/albumPage" android:layout_width="match_parent" android:layout_height="match_parent"
