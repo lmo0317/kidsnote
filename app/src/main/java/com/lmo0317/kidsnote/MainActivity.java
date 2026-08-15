@@ -111,6 +111,12 @@ public class MainActivity extends Activity {
     for (int y = current; y >= 2022; y--) years.add(y + "년");
     yearSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, years));
     scheduleYearSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, years));
+    scheduleYearSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+      @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+        if (schedulePage != null && schedulePage.getVisibility() == View.VISIBLE) loadCachedSchedules();
+      }
+      @Override public void onNothingSelected(AdapterView<?> parent) {}
+    });
     ArrayList<String> savedYears = new ArrayList<>();
     savedYears.add("전체 연도");
     savedYears.addAll(years);
@@ -236,6 +242,7 @@ public class MainActivity extends Activity {
     scheduleNavIcon.setColorFilter(scheduleColor);
     albumNavButton.setBackgroundResource(schedule ? android.R.color.transparent : R.drawable.bg_bottom_nav_selected);
     scheduleNavButton.setBackgroundResource(schedule ? R.drawable.bg_bottom_nav_selected : android.R.color.transparent);
+    if (schedule) loadCachedSchedules();
   }
 
   private void loadSchedules() {
@@ -247,10 +254,11 @@ public class MainActivity extends Activity {
     Button button = findViewById(R.id.analyzeScheduleButton);
     button.setEnabled(false);
     button.setText("분석 중…");
-    scheduleCountText.setText(targetYear + "년 알림장에서 날짜와 시간을 찾는 중");
-    scheduleEmptyState.setVisibility(View.VISIBLE);
+    scheduleCountText.setText("새로운 미래 일정과 준비물을 확인하는 중");
     networkIo.execute(() -> {
       LinkedHashMap<String, ScheduleItem> found = new LinkedHashMap<>();
+      for (ScheduleItem cached : schedules) found.put(scheduleKey(cached), cached);
+      int previousCount = found.size();
       String errorMessage = null;
       try {
         String next = "https://www.kidsnote.com/api/v1_2/children/" + childId + "/reports/?page_size=5000";
@@ -270,16 +278,18 @@ public class MainActivity extends Activity {
         errorMessage = error.getMessage();
       }
       String failure = errorMessage;
+      int addedCount = Math.max(0, found.size() - previousCount);
       runOnUiThread(() -> {
         schedules.clear();
         schedules.addAll(found.values());
         schedules.sort(Comparator.comparing((ScheduleItem item) -> item.date).thenComparing(item -> item.time));
+        saveCachedSchedules(targetYear);
         ((BaseAdapter) scheduleList.getAdapter()).notifyDataSetChanged();
         button.setEnabled(true);
-        button.setText("일정 불러오기");
-        if (failure != null) scheduleCountText.setText("불러오기 실패: " + failure);
-        else scheduleCountText.setText(schedules.isEmpty() ? targetYear + "년 명시된 일정을 찾지 못했습니다"
-            : targetYear + "년 일정 " + schedules.size() + "개 · 날짜순");
+        button.setText("새 일정 확인");
+        if (failure != null) scheduleCountText.setText("불러오기 실패 · 저장된 일정은 그대로 유지됩니다");
+        else if (schedules.isEmpty()) scheduleCountText.setText(targetYear + "년 남은 일정을 찾지 못했습니다");
+        else scheduleCountText.setText("앞으로의 일정 " + schedules.size() + "개 · 새로 추가 " + addedCount + "개");
         scheduleEmptyState.setVisibility(schedules.isEmpty() ? View.VISIBLE : View.GONE);
       });
     });
@@ -316,6 +326,7 @@ public class MainActivity extends Activity {
     String context = text.substring(from, to).trim();
     if (context.length() < 4) return;
     String date = String.format(Locale.US, "%04d-%02d-%02d", Integer.parseInt(year), Integer.parseInt(month), Integer.parseInt(day));
+    if (date.compareTo(todayDate()) < 0) return;
     Matcher timeMatcher = Pattern.compile("(?:(오전|오후)\\s*)?([01]?\\d|2[0-3])\\s*시(?:\\s*([0-5]?\\d)\\s*분)?").matcher(context);
     String time = "";
     if (timeMatcher.find()) {
@@ -325,10 +336,89 @@ public class MainActivity extends Activity {
       time = String.format(Locale.US, "%02d:%02d", hour,
           timeMatcher.group(3) == null ? 0 : Integer.parseInt(timeMatcher.group(3)));
     }
-    String title = itemTitle.trim().isEmpty() ? context : itemTitle.trim();
-    if (title.length() > 72) title = title.substring(0, 72) + "…";
-    String key = date + "|" + title.replaceAll("\\s+", "").toLowerCase(Locale.KOREA);
-    found.putIfAbsent(key, new ScheduleItem(date, time, title, context, written));
+    String preparation = extractPreparation(context);
+    String title = cleanScheduleTitle(context, year, month, day, time, preparation);
+    if (title.isEmpty()) title = itemTitle.trim();
+    title = cleanSummaryTitle(title);
+    if (title.isEmpty() || title.matches("(?i).*(알림장|키즈노트|공지사항).*")) title = "예정된 일정";
+    if (title.length() > 60) title = title.substring(0, 60) + "…";
+    ScheduleItem schedule = new ScheduleItem(date, time, title, preparation, written);
+    found.putIfAbsent(scheduleKey(schedule), schedule);
+  }
+
+  private static String cleanScheduleTitle(String context, String year, String month, String day,
+      String time, String preparation) {
+    String title = context
+        .replaceFirst("(?i)준비물\\s*[:：]?\\s*.*$", "")
+        .replaceAll("20\\d{2}\\s*[년./-]\\s*", "")
+        .replaceFirst("(?<!\\d)0?" + Integer.parseInt(month) + "\\s*월\\s*0?" + Integer.parseInt(day) + "\\s*일", "")
+        .replaceAll("(?:(오전|오후)\\s*)?([01]?\\d|2[0-3])\\s*시(?:\\s*([0-5]?\\d)\\s*분)?", "")
+        .replaceAll("^[\\s:：,.-]+|[\\s:：,.-]+$", "").replaceAll("\\s+", " ").trim();
+    return cleanSummaryTitle(title);
+  }
+
+  private static String extractPreparation(String context) {
+    Matcher matcher = Pattern.compile("(?i)(?:준비물|챙길 것|지참물|복장)\\s*[:：]?\\s*(.{1,100}?)(?=\\s+-\\s+(?:일시|날짜|장소|준비물|지참물|복장)\\s*[:：]|[.!?]|$)").matcher(context);
+    if (!matcher.find()) return "";
+    return matcher.group(1).replaceAll("\\s+", " ").trim();
+  }
+
+  private static String cleanSummaryTitle(String value) {
+    return value.replaceFirst("(?i)\\s*-?\\s*(?:일시|날짜|장소|준비물|챙길 것|지참물|복장)\\s*[:：].*$", "")
+        .replaceAll("^[\\s:：,.-]+|[\\s:：,.-]+$", "").replaceAll("\\s+", " ").trim();
+  }
+
+  private static String scheduleKey(ScheduleItem item) {
+    return item.date + "|" + item.time + "|" + item.title.replaceAll("[^가-힣a-zA-Z0-9]", "").toLowerCase(Locale.KOREA);
+  }
+
+  private static String todayDate() {
+    return new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
+  }
+
+  private String scheduleCacheKey(String year) {
+    String account = childId.isEmpty() ? (loginId.isEmpty() ? "default" : loginId) : childId;
+    return "schedule_cache_v2_" + account + "_" + year;
+  }
+
+  private void loadCachedSchedules() {
+    if (scheduleYearSpinner.getSelectedItem() == null) return;
+    String year = scheduleYearSpinner.getSelectedItem().toString().replace("년", "");
+    ArrayList<ScheduleItem> cached = new ArrayList<>();
+    try {
+      JSONArray array = new JSONArray(getPreferences(MODE_PRIVATE).getString(scheduleCacheKey(year), "[]"));
+      for (int i = 0; i < array.length(); i++) {
+        JSONObject value = array.optJSONObject(i);
+        if (value == null) continue;
+        String storedTitle = value.optString("title");
+        String storedPreparation = value.optString("preparation");
+        if (storedPreparation.isEmpty()) storedPreparation = extractPreparation(storedTitle);
+        ScheduleItem item = new ScheduleItem(value.optString("date"), value.optString("time"),
+            cleanSummaryTitle(storedTitle), storedPreparation, value.optString("written"));
+        if (item.date.compareTo(todayDate()) >= 0) cached.add(item);
+      }
+    } catch (JSONException ignored) {}
+    cached.sort(Comparator.comparing((ScheduleItem item) -> item.date).thenComparing(item -> item.time));
+    schedules.clear();
+    schedules.addAll(cached);
+    ((BaseAdapter) scheduleList.getAdapter()).notifyDataSetChanged();
+    scheduleCountText.setText(cached.isEmpty() ? year + "년 저장된 미래 일정이 없습니다"
+        : "저장된 미래 일정 " + cached.size() + "개 · 바로 표시됨");
+    scheduleEmptyState.setVisibility(cached.isEmpty() ? View.VISIBLE : View.GONE);
+  }
+
+  private void saveCachedSchedules(String year) {
+    JSONArray array = new JSONArray();
+    for (ScheduleItem item : schedules) {
+      if (!item.date.startsWith(year) || item.date.compareTo(todayDate()) < 0) continue;
+      try {
+        JSONObject value = new JSONObject();
+        value.put("date", item.date); value.put("time", item.time); value.put("title", item.title);
+        value.put("preparation", item.preparation); value.put("written", item.written);
+        array.put(value);
+      } catch (JSONException ignored) {}
+    }
+    getPreferences(MODE_PRIVATE).edit().putString(scheduleCacheKey(year), array.toString()).apply();
   }
 
   private static String inferEventYear(String written, String month) {
@@ -1062,7 +1152,11 @@ public class MainActivity extends Activity {
 
       ScheduleItem item = schedules.get(position);
       TextView date = new TextView(MainActivity.this);
-      date.setText(displayDate(item.date) + (item.time.isEmpty() ? "" : "  " + item.time));
+      String[] parts = item.date.split("-");
+      String clearDate = parts.length == 3
+          ? Integer.parseInt(parts[0]) + "년  " + Integer.parseInt(parts[1]) + "월  " + Integer.parseInt(parts[2]) + "일"
+          : item.date;
+      date.setText(clearDate + (item.time.isEmpty() ? "" : "   " + item.time));
       date.setTextColor(getColor(R.color.mint_dark));
       date.setTextSize(12);
       date.setTypeface(null, Typeface.BOLD);
@@ -1077,15 +1171,17 @@ public class MainActivity extends Activity {
       titleParams.topMargin = dp(5);
       card.addView(title, titleParams);
 
-      TextView context = new TextView(MainActivity.this);
-      context.setText(item.context);
-      context.setTextColor(getColor(R.color.text_secondary));
-      context.setTextSize(11);
-      context.setMaxLines(3);
-      context.setEllipsize(android.text.TextUtils.TruncateAt.END);
-      LinearLayout.LayoutParams contextParams = new LinearLayout.LayoutParams(-1, -2);
-      contextParams.topMargin = dp(4);
-      card.addView(context, contextParams);
+      if (!item.preparation.isEmpty()) {
+        TextView preparation = new TextView(MainActivity.this);
+        preparation.setText("준비물  ·  " + item.preparation);
+        preparation.setTextColor(getColor(R.color.text_secondary));
+        preparation.setTextSize(12);
+        preparation.setMaxLines(2);
+        preparation.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams preparationParams = new LinearLayout.LayoutParams(-1, -2);
+        preparationParams.topMargin = dp(6);
+        card.addView(preparation, preparationParams);
+      }
       return card;
     }
   }
@@ -1213,12 +1309,12 @@ public class MainActivity extends Activity {
     Photo(String url, String date) { this.url = url; this.date = date == null ? "" : date; }
   }
   private static class ScheduleItem {
-    final String date, time, title, context, written;
-    ScheduleItem(String date, String time, String title, String context, String written) {
+    final String date, time, title, preparation, written;
+    ScheduleItem(String date, String time, String title, String preparation, String written) {
       this.date = date;
       this.time = time;
       this.title = title;
-      this.context = context;
+      this.preparation = preparation;
       this.written = written;
     }
   }

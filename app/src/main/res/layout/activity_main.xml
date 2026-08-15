@@ -127,7 +127,7 @@
         <Spinner android:id="@+id/scheduleYearSpinner" android:layout_width="0dp" android:layout_height="48dp"
           android:layout_weight="1" android:background="@drawable/bg_spinner" android:spinnerMode="dropdown" />
         <Button android:id="@+id/analyzeScheduleButton" android:layout_width="wrap_content" android:layout_height="48dp"
-          android:layout_marginStart="8dp" android:minWidth="136dp" android:text="일정 불러오기" android:textAllCaps="false"
+          android:layout_marginStart="8dp" android:minWidth="136dp" android:text="새 일정 확인" android:textAllCaps="false"
           android:textColor="@color/mint_dark" android:textStyle="bold" android:backgroundTint="@color/mint" />
       </LinearLayout>
       <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/line" />
@@ -147,9 +147,9 @@
           <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="□"
             android:textColor="#B5C4C1" android:textSize="42sp" />
           <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp"
-            android:text="명시된 날짜가 있는 일정을 모아 보여줍니다" android:textColor="@color/text_secondary" android:textSize="13sp" />
+            android:text="저장된 미래 일정이 없습니다" android:textColor="@color/text_secondary" android:textSize="13sp" />
           <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="5dp"
-            android:text="AI를 사용하지 않고 날짜와 시간 표현만 분석합니다" android:textColor="#8A999E" android:textSize="11sp" />
+            android:text="새 일정 확인을 누르면 일정과 준비물만 추가합니다" android:textColor="#8A999E" android:textSize="11sp" />
         </LinearLayout>
       </FrameLayout>
     </LinearLayout>
