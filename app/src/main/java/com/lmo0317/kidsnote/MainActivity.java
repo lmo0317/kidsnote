@@ -1154,7 +1154,8 @@ public class MainActivity extends Activity {
       TextView date = new TextView(MainActivity.this);
       String[] parts = item.date.split("-");
       String clearDate = parts.length == 3
-          ? Integer.parseInt(parts[0]) + "년  " + Integer.parseInt(parts[1]) + "월  " + Integer.parseInt(parts[2]) + "일"
+          ? Integer.parseInt(parts[0]) + "년  " + Integer.parseInt(parts[1]) + "월  " + Integer.parseInt(parts[2])
+              + "일  (" + weekdayOf(item.date) + ")"
           : item.date;
       date.setText(clearDate + (item.time.isEmpty() ? "" : "   " + item.time));
       date.setTextColor(getColor(R.color.mint_dark));
@@ -1183,6 +1184,17 @@ public class MainActivity extends Activity {
         card.addView(preparation, preparationParams);
       }
       return card;
+    }
+  }
+
+  private static String weekdayOf(String date) {
+    try {
+      java.text.SimpleDateFormat parser = new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US);
+      parser.setLenient(false);
+      Date parsed = parser.parse(date);
+      return new java.text.SimpleDateFormat("E", Locale.KOREA).format(parsed);
+    } catch (Exception ignored) {
+      return "";
     }
   }
 
