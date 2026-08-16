@@ -84,9 +84,10 @@ module.exports = function registerPcPhotoSources(app, dependencies) {
     const session = getSavedKidsNoteSession(req);
     if (!session) return res.status(401).json({ error: '먼저 키즈노트 계정을 연결해 주세요.' });
     const date = String(req.query.date || '').trim();
+    const month = String(req.query.month || '').trim();
     const year = String(req.query.year || '').trim();
-    if (!/^20\d{2}-\d{2}-\d{2}$/.test(date) && !/^20\d{2}$/.test(year)) return res.status(400).json({ error: '다운로드 연도 또는 날짜를 확인해 주세요.' });
-    const range = date || year;
+    if (!/^20\d{2}-\d{2}-\d{2}$/.test(date) && !/^20\d{2}-(0[1-9]|1[0-2])$/.test(month) && !/^20\d{2}$/.test(year)) return res.status(400).json({ error: '다운로드 연도, 월 또는 날짜를 확인해 주세요.' });
+    const range = date || month || year;
     const items = Array.from(sourceSets.get(session.token)?.items.values() || []).filter(item => item.takenAt.startsWith(range));
     if (!items.length) return res.status(404).json({ error: '다운로드할 사진이 없습니다.' });
     res.setHeader('Content-Type', 'application/zip');
