@@ -53,4 +53,4 @@
 @media(max-width:560px){.gallery-grid,.gallery-grid.columns-3,.gallery-grid.columns-4,.gallery-grid.columns-5{grid-template-columns:1fr}.gallery-card{aspect-ratio:4/3}}
 
 /* Fill the available desktop viewport instead of leaving unused space below the gallery. */
-@media(min-width:901px){.gallery-grid{height:calc(100dvh - 330px);min-height:520px;max-height:none}}
+@media(min-width:901px){.gallery-grid{height:calc(100dvh - 330px);min-height:520px;max-height:none;grid-auto-rows:max-content;align-content:start}}
