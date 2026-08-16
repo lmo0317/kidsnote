@@ -1,15 +1,119 @@
-<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes"><meta name="theme-color" content="#f5faf8"><title>사진 저장 | 키즈노트 사진 저장 도우미</title><link rel="icon" href="data:,"><script src="https://unpkg.com/lucide@latest"></script><link rel="stylesheet" href="/photo-mobile.css?v=20260816-3"></head>
-<body><div class="mobile-app">
-  <header class="mobile-header"><a class="mobile-brand" href="/photo/m"><span><i data-lucide="images"></i></span><strong>사진 저장 도우미</strong></a><div class="header-actions"><a href="/guide.html" aria-label="사용 방법"><i data-lucide="circle-help"></i></a><button id="btn-kidsnote-session" aria-label="키즈노트 로그인"><i data-lucide="log-in"></i></button></div></header>
-  <main>
-    <section class="account-strip"><span id="session-dot" class="session-dot"></span><div><small>키즈노트 계정</small><strong id="session-text">연결 상태 확인 중</strong></div><button id="btn-account-action">로그인</button></section>
-    <section class="search-panel"><label for="year-select">사진을 찾을 연도</label><div class="year-row"><select id="year-select"></select><button id="btn-load-photos"><i data-lucide="search"></i><span>조회</span></button></div><p><i data-lucide="shield-check"></i> 사진은 서버에 저장하지 않습니다.</p></section>
-    <section id="lookup-progress" class="loading-panel hidden"><span class="spinner"></span><strong>사진을 불러오고 있어요</strong><p>사진 수에 따라 잠시 걸릴 수 있습니다.</p></section>
-    <section id="start-guide" class="empty-panel"><i data-lucide="calendar-search"></i><strong>연도를 선택하고 사진을 조회하세요</strong><p>최신 사진부터 날짜별로 보여드릴게요.</p></section>
-    <section id="result-area" class="results hidden"><div class="result-head"><div><small>조회한 사진</small><strong id="photo-count">0장</strong></div><label for="date-select"><span>날짜</span><select id="date-select"></select></label></div><div id="photo-list" class="mobile-gallery"></div><div id="empty-result" class="empty-panel hidden"><i data-lucide="image-off"></i><strong>이 날짜에는 사진이 없어요</strong><p>다른 날짜를 선택해 주세요.</p></div></section>
-  </main>
-  <div id="download-bar" class="download-bar hidden"><div><small id="download-caption">선택한 연도</small><strong id="selected-count">0장</strong></div><button id="btn-download-date"><i data-lucide="archive"></i><span>전체 받기</span></button></div>
-  <footer><a id="switch-pc" href="/photo/pc"><i data-lucide="monitor"></i>PC 화면으로 보기</a><p>키즈노트 운영사와 무관한 비공식 서비스입니다.</p></footer>
-</div>
-<div id="kidsnote-login-modal" class="modal hidden" aria-hidden="true"><section class="dialog" role="dialog" aria-modal="true"><div class="dialog-handle"></div><button id="kidsnote-login-close" class="dialog-close" aria-label="닫기"><i data-lucide="x"></i></button><span class="dialog-icon"><i data-lucide="shield-check"></i></span><h2>키즈노트 계정 연결</h2><p>사진을 조회할 키즈노트 계정으로 로그인해 주세요.</p><div class="security-note"><i data-lucide="lock-keyhole"></i>비밀번호는 저장하지 않습니다.</div><form id="kidsnote-login-form"><label>아이디<input id="kidsnote-username" autocomplete="username" required placeholder="키즈노트 아이디"></label><label>비밀번호<input id="kidsnote-password" type="password" autocomplete="current-password" required placeholder="키즈노트 비밀번호"></label><p id="kidsnote-login-error" class="form-error hidden"></p><button id="btn-kidsnote-login"><span>로그인하고 연결하기</span><i data-lucide="arrow-right"></i></button></form></section></div>
-<div id="toast" class="toast"></div><script src="/photo-mobile.js?v=20260816-2"></script></body></html>
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5,user-scalable=yes,viewport-fit=cover">
+  <meta name="theme-color" content="#f9f9f9">
+  <title>사진 저장 | 키즈노트 사진 저장 도우미</title>
+  <link rel="icon" href="data:,">
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="stylesheet" href="/photo-mobile.css?v=20260816-6">
+  <style>
+    html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+    html,body{width:100%;overflow-x:hidden;font-size:16px}
+    .mobile-app{width:100%;max-width:none!important;margin:0!important;border:0!important}
+    .mobile-header{height:52px;padding:0 12px}
+    .mobile-brand{flex:1;min-width:0;gap:8px}.mobile-brand strong{min-width:0;font-size:18px}
+    .mobile-brand>span{width:32px;height:32px;border-radius:8px}.mobile-brand svg{width:18px}
+    .header-actions{flex:none;gap:2px}.header-actions a,.header-actions button{width:36px;height:36px;border-radius:8px}.header-actions svg{width:19px;height:19px}
+    .account-strip{min-height:56px;padding:8px 14px;gap:9px}.session-dot{width:8px;height:8px}.account-strip div{flex-direction:row;align-items:center;gap:6px}.account-strip small{font-size:12px}.account-strip strong{margin:0;font-size:14px}.account-strip button{min-width:64px;height:36px;padding:0 10px;font-size:14px}
+    .search-panel{padding:13px 14px 14px}.search-heading{margin-bottom:9px;display:flex;align-items:center;justify-content:space-between;gap:10px}.search-heading label{font-size:16px;font-weight:800}.search-heading p{margin:0;display:flex;align-items:center;gap:4px;color:var(--muted);font-size:11px;white-space:nowrap}.search-heading p svg{width:14px;height:14px;color:var(--primary-dark)}.year-row{grid-template-columns:minmax(0,1fr) 88px;gap:8px}.year-row>*{min-width:0}.year-row select,.year-row button{height:44px;font-size:16px}.year-row button{padding:0 12px}.year-row svg{width:18px}
+    .state-panel{min-height:calc(100dvh - 230px);padding:34px 20px}.state-panel>svg{width:56px;height:56px}.state-panel strong{margin-top:20px;font-size:22px}.state-panel p{font-size:15px}
+    .result-head{padding:22px 0 18px}.result-head strong{font-size:25px}.result-head select{height:44px;font-size:15px}
+    .download-bar{padding-top:12px;padding-bottom:calc(12px + env(safe-area-inset-bottom))}.download-bar button{height:48px;font-size:16px}
+    .dialog{padding:32px 20px calc(24px + env(safe-area-inset-bottom))}.dialog-close{right:18px;top:24px;width:42px;height:42px}.dialog-icon{width:50px;height:50px}.dialog h2{margin-top:21px;font-size:25px}.dialog>p{font-size:16px}.security-note{margin-top:20px;font-size:14px}.dialog form label{margin-top:19px;font-size:15px}.dialog input{height:52px;font-size:16px}.dialog form button{height:52px;margin-top:22px;font-size:16px}.toast{font-size:15px}
+    .mobile-gallery{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px}
+    .photo-card{min-width:0;border-radius:10px}.photo-card img{width:100%;aspect-ratio:1/1;height:auto;object-fit:cover}
+    .photo-meta{min-height:96px;padding:10px;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:8px}
+    .photo-meta time{font-size:14px;font-weight:700;line-height:1.35;text-align:center}
+    .photo-meta a{width:100%;height:40px;padding:0 6px;justify-content:center;font-size:14px;white-space:nowrap}
+    @media(max-width:370px){.mobile-brand strong{font-size:17px}.header-actions a,.header-actions button{width:34px}.account-strip{padding-left:12px;padding-right:12px}.account-strip small{display:none}.search-panel,.results{padding-left:12px;padding-right:12px}.search-heading p{font-size:10px}.year-row{grid-template-columns:minmax(0,1fr) 82px}}
+    @media(min-width:600px){.download-bar{left:0!important;right:0!important;width:100%!important;transform:none!important}.dialog{width:100%!important;max-width:none!important;margin:0!important}}
+  </style>
+</head>
+<body>
+  <div class="mobile-app">
+    <header class="mobile-header">
+      <a class="mobile-brand" href="/photo/m"><span><i data-lucide="images"></i></span><strong>사진 저장 도우미</strong></a>
+      <div class="header-actions">
+        <a href="/guide.html" aria-label="사용 방법"><i data-lucide="circle-help"></i></a>
+        <button id="btn-kidsnote-session" aria-label="키즈노트 로그인"><i data-lucide="log-in"></i></button>
+      </div>
+    </header>
+
+    <main>
+      <section class="account-strip">
+        <span id="session-dot" class="session-dot"></span>
+        <div><small>키즈노트 계정</small><strong id="session-text">연결 상태 확인 중</strong></div>
+        <button id="btn-account-action">로그인</button>
+      </section>
+
+      <section class="search-panel">
+        <div class="search-heading">
+          <label for="year-select">사진을 찾을 연도</label>
+          <p><i data-lucide="shield-check"></i> 서버에 저장하지 않아요</p>
+        </div>
+        <div class="year-row">
+          <select id="year-select"></select>
+          <button id="btn-load-photos"><i data-lucide="search"></i><span>조회</span></button>
+        </div>
+      </section>
+
+      <section id="lookup-progress" class="state-panel loading-panel hidden">
+        <span class="spinner"></span>
+        <strong>사진을 불러오고 있어요</strong>
+        <p>사진 수에 따라 잠시 걸릴 수 있습니다.</p>
+      </section>
+
+      <section id="start-guide" class="state-panel empty-panel">
+        <i data-lucide="calendar-search"></i>
+        <strong>연도를 선택하고 사진을 조회하세요</strong>
+        <p>최신 사진부터 날짜별로 보여드릴게요.</p>
+      </section>
+
+      <section id="result-area" class="results hidden">
+        <div class="result-head">
+          <div><small>조회한 사진</small><strong id="photo-count">0장</strong></div>
+          <label for="date-select"><span>날짜</span><select id="date-select"></select></label>
+        </div>
+        <div id="photo-list" class="mobile-gallery"></div>
+        <div id="empty-result" class="state-panel empty-panel hidden">
+          <i data-lucide="folder-search-2"></i>
+          <strong>조회된 사진이 없습니다</strong>
+          <p>선택한 연도나 날짜에 등록된 사진이 있는지 키즈노트 앱에서 확인해 주세요.</p>
+          <button id="btn-select-year-again" type="button">연도 다시 선택하기</button>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>본 서비스는 키즈노트 공식 서비스가 아닙니다.</p>
+      <a id="switch-pc" href="/photo/pc">PC 버전으로 보기</a>
+    </footer>
+
+    <div id="download-bar" class="download-bar hidden">
+      <div class="download-summary"><small id="download-caption">선택한 연도</small><strong id="selected-count">0장</strong></div>
+      <button id="btn-download-date"><i data-lucide="archive"></i><span>연도 전체 받기</span></button>
+    </div>
+  </div>
+
+  <div id="kidsnote-login-modal" class="modal hidden" aria-hidden="true">
+    <section class="dialog" role="dialog" aria-modal="true">
+      <div class="dialog-handle"></div>
+      <button id="kidsnote-login-close" class="dialog-close" aria-label="닫기"><i data-lucide="x"></i></button>
+      <span class="dialog-icon"><i data-lucide="shield-check"></i></span>
+      <h2>키즈노트 계정 연결</h2>
+      <p>사진을 조회할 키즈노트 계정으로 로그인해 주세요.</p>
+      <div class="security-note"><i data-lucide="lock-keyhole"></i>비밀번호는 저장하지 않습니다.</div>
+      <form id="kidsnote-login-form">
+        <label>아이디<input id="kidsnote-username" autocomplete="username" required placeholder="키즈노트 아이디"></label>
+        <label>비밀번호<input id="kidsnote-password" type="password" autocomplete="current-password" required placeholder="키즈노트 비밀번호"></label>
+        <p id="kidsnote-login-error" class="form-error hidden"></p>
+        <button id="btn-kidsnote-login"><span>로그인하고 연결하기</span><i data-lucide="arrow-right"></i></button>
+      </form>
+    </section>
+  </div>
+  <div id="toast" class="toast"></div>
+  <script src="/photo-mobile.js?v=20260816-3"></script>
+</body>
+</html>
