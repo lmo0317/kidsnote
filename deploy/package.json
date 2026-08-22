@@ -1,0 +1,14 @@
+{
+  "name": "kidsnote-delivery-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KidsNote photo and notice delivery service dependencies",
+  "scripts": {
+    "check": "node --check delivery-service.js && node --check delivery-service-production.js && node --check visitor-analytics.js"
+  },
+  "dependencies": {
+    "archiver": "7.0.1",
+    "archiver-zip-encrypted": "2.0.0",
+    "nodemailer": "^6.10.1"
+  }
+}

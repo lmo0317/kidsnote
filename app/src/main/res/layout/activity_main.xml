@@ -29,7 +29,7 @@
       android:textColor="@color/mint_dark" android:textSize="11sp" android:clickable="true" android:focusable="true" />
 
     <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
-    <LinearLayout android:id="@+id/albumPage" android:layout_width="match_parent" android:layout_height="match_parent"
+    <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent"
       android:orientation="vertical">
     <LinearLayout android:layout_width="match_parent" android:layout_height="48dp" android:orientation="horizontal"
       android:background="@color/white" android:paddingStart="12dp" android:paddingEnd="12dp">
@@ -68,7 +68,7 @@
           android:layout_marginTop="1dp" android:text="가져온 사진이 없습니다" android:textColor="@color/text_secondary" android:textSize="11sp" />
       </LinearLayout>
       <Button android:id="@+id/downloadButton" android:layout_width="wrap_content" android:layout_height="42dp"
-        android:enabled="false" android:text="원본 전체 저장" android:textAllCaps="false" android:textStyle="bold"
+        android:enabled="false" android:text="사진·알림장 저장" android:textAllCaps="false" android:textStyle="bold"
         android:textColor="@color/white" android:backgroundTint="@color/panel" />
     </LinearLayout>
 
@@ -124,62 +124,7 @@
     </FrameLayout>
     </LinearLayout>
 
-    <LinearLayout android:id="@+id/schedulePage" android:layout_width="match_parent" android:layout_height="match_parent"
-      android:orientation="vertical" android:visibility="gone">
-      <LinearLayout android:layout_width="match_parent" android:layout_height="70dp" android:gravity="center_vertical"
-        android:orientation="horizontal" android:background="@color/white" android:paddingStart="12dp" android:paddingEnd="12dp">
-        <Spinner android:id="@+id/scheduleYearSpinner" android:layout_width="0dp" android:layout_height="48dp"
-          android:layout_weight="1" android:background="@drawable/bg_spinner" android:spinnerMode="dropdown" />
-        <Button android:id="@+id/analyzeScheduleButton" android:layout_width="wrap_content" android:layout_height="48dp"
-          android:layout_marginStart="8dp" android:minWidth="136dp" android:text="새 일정 확인" android:textAllCaps="false"
-          android:textColor="@color/mint_dark" android:textStyle="bold" android:backgroundTint="@color/mint" />
-      </LinearLayout>
-      <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/line" />
-      <LinearLayout android:layout_width="match_parent" android:layout_height="60dp" android:orientation="vertical"
-        android:gravity="center_vertical" android:paddingStart="16dp" android:paddingEnd="12dp">
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="키즈노트 일정"
-          android:textColor="@color/text_primary" android:textStyle="bold" android:textSize="18sp" />
-        <TextView android:id="@+id/scheduleCountText" android:layout_width="wrap_content" android:layout_height="wrap_content"
-          android:layout_marginTop="2dp" android:text="연도를 선택해 일정을 불러오세요" android:textColor="@color/text_secondary" android:textSize="11sp" />
-      </LinearLayout>
-      <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
-        <ListView android:id="@+id/scheduleList" android:layout_width="match_parent" android:layout_height="match_parent"
-          android:padding="10dp" android:clipToPadding="false" android:divider="@android:color/transparent"
-          android:dividerHeight="8dp" android:listSelector="@android:color/transparent" />
-        <LinearLayout android:id="@+id/scheduleEmptyState" android:layout_width="match_parent" android:layout_height="match_parent"
-          android:gravity="center" android:orientation="vertical" android:padding="28dp">
-          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="□"
-            android:textColor="#B5C4C1" android:textSize="42sp" />
-          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp"
-            android:text="저장된 미래 일정이 없습니다" android:textColor="@color/text_secondary" android:textSize="13sp" />
-          <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="5dp"
-            android:text="새 일정 확인을 누르면 일정과 준비물만 추가합니다" android:textColor="#8A999E" android:textSize="11sp" />
-        </LinearLayout>
-      </FrameLayout>
-    </LinearLayout>
     </FrameLayout>
-
-    <LinearLayout android:layout_width="match_parent" android:layout_height="72dp" android:orientation="horizontal"
-      android:gravity="center" android:background="@color/white" android:padding="7dp" android:elevation="10dp">
-      <LinearLayout android:id="@+id/albumNavButton" android:layout_width="0dp" android:layout_height="58dp"
-        android:layout_weight="1" android:layout_marginEnd="4dp" android:gravity="center" android:orientation="vertical"
-        android:background="@drawable/bg_bottom_nav_selected" android:clickable="true" android:focusable="true">
-        <ImageView android:id="@+id/albumNavIcon" android:layout_width="25dp" android:layout_height="25dp"
-          android:src="@drawable/ic_nav_album" android:contentDescription="앨범" />
-        <TextView android:id="@+id/albumNavLabel" android:layout_width="wrap_content" android:layout_height="wrap_content"
-          android:layout_marginTop="2dp" android:text="앨범" android:textStyle="bold" android:textSize="11sp"
-          android:textColor="@color/mint_dark" />
-      </LinearLayout>
-      <LinearLayout android:id="@+id/scheduleNavButton" android:layout_width="0dp" android:layout_height="58dp"
-        android:layout_weight="1" android:layout_marginStart="4dp" android:gravity="center" android:orientation="vertical"
-        android:clickable="true" android:focusable="true">
-        <ImageView android:id="@+id/scheduleNavIcon" android:layout_width="25dp" android:layout_height="25dp"
-          android:src="@drawable/ic_nav_calendar" android:tint="@color/text_secondary" android:contentDescription="일정 관리" />
-        <TextView android:id="@+id/scheduleNavLabel" android:layout_width="wrap_content" android:layout_height="wrap_content"
-          android:layout_marginTop="2dp" android:text="일정 관리" android:textStyle="bold" android:textSize="11sp"
-          android:textColor="@color/text_secondary" />
-      </LinearLayout>
-    </LinearLayout>
   </LinearLayout>
 
   <LinearLayout android:id="@+id/webPanel" android:layout_width="match_parent" android:layout_height="match_parent"

@@ -1,0 +1,1 @@
+.badge.cancelled{background:#f0f1f0;color:#6e7e74}.job-tools{display:flex;align-items:center;gap:12px}.cancel-job{height:34px;padding:0 13px;background:#fff0f0;color:#bd3c3c;border:1px solid #f2cccc;border-radius:9px;font-size:12px}@media(max-width:680px){.job-tools{align-items:flex-end;flex-direction:column-reverse;gap:5px}}

@@ -24,6 +24,8 @@ import java.util.regex.*;
 
 public class MainActivity extends Activity {
   private static final int STORAGE_PERMISSION_REQUEST = 1001;
+  private static final int FOLDER_BY_DAY = 0;
+  private static final int FOLDER_BY_MONTH = 1;
   private static final long DISK_CACHE_LIMIT = 192L * 1024 * 1024;
   private static final int MEMORY_CACHE_LIMIT = (int) Math.max(16L * 1024 * 1024,
       Math.min(64L * 1024 * 1024, Runtime.getRuntime().maxMemory() / 6));
@@ -31,28 +33,25 @@ public class MainActivity extends Activity {
   private final ThreadPoolExecutor thumbnailIo = new ThreadPoolExecutor(
       3, 3, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(192), new ThreadPoolExecutor.DiscardOldestPolicy());
   private final ArrayList<Photo> photos = new ArrayList<>();
+  private final ArrayList<Notice> notices = new ArrayList<>();
   private final ArrayList<Photo> savedPhotos = new ArrayList<>();
-  private final ArrayList<ScheduleItem> schedules = new ArrayList<>();
   private final LruCache<String, Bitmap> thumbnailCache = new LruCache<String, Bitmap>(MEMORY_CACHE_LIMIT) {
     @Override protected int sizeOf(String key, Bitmap bitmap) { return bitmap.getByteCount(); }
   };
-  private TextView countText, galleryTitle, loginStatusBadge, loginStatusDetail, previewTab, savedTab, savedCountText,
-      albumNavLabel, scheduleNavLabel, scheduleCountText;
-  private ImageView albumNavIcon, scheduleNavIcon;
+  private TextView countText, galleryTitle, loginStatusBadge, loginStatusDetail, previewTab, savedTab, savedCountText;
   private ProgressBar progress;
   private GridView gallery, savedGallery;
   private ScaleGestureDetector galleryScaleDetector;
   private int galleryColumns = 3;
   private float galleryScale = 1f;
-  private Spinner yearSpinner, savedYearSpinner, scheduleYearSpinner;
-  private ListView scheduleList;
+  private Spinner yearSpinner, savedYearSpinner;
   private Button downloadButton;
-  private LinearLayout webPanel, emptyState, savedEmptyState, previewTabContent, savedTabContent,
-      albumPage, schedulePage, scheduleEmptyState, albumNavButton, scheduleNavButton;
+  private LinearLayout webPanel, emptyState, savedEmptyState, previewTabContent, savedTabContent;
   private WebView webView;
   private volatile String childId = "", enrollment = "", loginId = "";
   private Photo pendingSingleSave;
   private Button pendingSingleSaveButton;
+  private int pendingFolderMode = FOLDER_BY_DAY;
   private final Handler mainHandler = new Handler(Looper.getMainLooper());
   private boolean sessionChecking = false, pendingLoad = false, resettingLogin = false,
       loginVerificationStarted = false;
@@ -90,33 +89,15 @@ public class MainActivity extends Activity {
     savedEmptyState = findViewById(R.id.savedEmptyState);
     previewTabContent = findViewById(R.id.previewTabContent);
     savedTabContent = findViewById(R.id.savedTabContent);
-    albumPage = findViewById(R.id.albumPage);
-    schedulePage = findViewById(R.id.schedulePage);
-    scheduleEmptyState = findViewById(R.id.scheduleEmptyState);
-    albumNavButton = findViewById(R.id.albumNavButton);
-    scheduleNavButton = findViewById(R.id.scheduleNavButton);
-    albumNavIcon = findViewById(R.id.albumNavIcon);
-    scheduleNavIcon = findViewById(R.id.scheduleNavIcon);
-    albumNavLabel = findViewById(R.id.albumNavLabel);
-    scheduleNavLabel = findViewById(R.id.scheduleNavLabel);
-    scheduleCountText = findViewById(R.id.scheduleCountText);
-    scheduleYearSpinner = findViewById(R.id.scheduleYearSpinner);
-    scheduleList = findViewById(R.id.scheduleList);
     webView = findViewById(R.id.webView);
     loginId = getPreferences(MODE_PRIVATE).getString("login_id", "");
+    pendingFolderMode = getPreferences(MODE_PRIVATE).getInt("backup_folder_mode", FOLDER_BY_DAY);
     galleryColumns = Math.max(2, Math.min(5, getPreferences(MODE_PRIVATE).getInt("gallery_columns", 3)));
 
     ArrayList<String> years = new ArrayList<>();
     int current = Calendar.getInstance().get(Calendar.YEAR);
     for (int y = current; y >= 2022; y--) years.add(y + "년");
     yearSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, years));
-    scheduleYearSpinner.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, years));
-    scheduleYearSpinner.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-      @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
-        if (schedulePage != null && schedulePage.getVisibility() == View.VISIBLE) loadCachedSchedules();
-      }
-      @Override public void onNothingSelected(AdapterView<?> parent) {}
-    });
     ArrayList<String> savedYears = new ArrayList<>();
     savedYears.add("전체 연도");
     savedYears.addAll(years);
@@ -134,7 +115,7 @@ public class MainActivity extends Activity {
     findViewById(R.id.appDisclosure).setOnClickListener(v -> showAppDisclosure());
     findViewById(R.id.closeWebButton).setOnClickListener(v -> webPanel.setVisibility(View.GONE));
     findViewById(R.id.loadButton).setOnClickListener(v -> loadYear());
-    downloadButton.setOnClickListener(v -> confirmBackup());
+    downloadButton.setOnClickListener(v -> chooseBackupFoldering());
     gallery.setAdapter(new PhotoAdapter(photos, gallery));
     savedGallery.setAdapter(new PhotoAdapter(savedPhotos, savedGallery));
     gallery.setNumColumns(galleryColumns);
@@ -147,10 +128,6 @@ public class MainActivity extends Activity {
     });
     previewTab.setOnClickListener(v -> showTab(false));
     savedTab.setOnClickListener(v -> showTab(true));
-    albumNavButton.setOnClickListener(v -> showMainPage(false));
-    scheduleNavButton.setOnClickListener(v -> showMainPage(true));
-    findViewById(R.id.analyzeScheduleButton).setOnClickListener(v -> loadSchedules());
-    scheduleList.setAdapter(new ScheduleAdapter());
     setupGalleryPinch();
     networkIo.execute(this::trimThumbnailDiskCache);
   }
@@ -242,212 +219,6 @@ public class MainActivity extends Activity {
     previewTab.setTextColor(getColor(saved ? R.color.text_secondary : R.color.mint_dark));
     savedTab.setTextColor(getColor(saved ? R.color.mint_dark : R.color.text_secondary));
     if (saved) loadSavedPhotos();
-  }
-
-  private void showMainPage(boolean schedule) {
-    albumPage.setVisibility(schedule ? View.GONE : View.VISIBLE);
-    schedulePage.setVisibility(schedule ? View.VISIBLE : View.GONE);
-    int albumColor = getColor(schedule ? R.color.text_secondary : R.color.mint_dark);
-    int scheduleColor = getColor(schedule ? R.color.mint_dark : R.color.text_secondary);
-    albumNavLabel.setTextColor(albumColor);
-    scheduleNavLabel.setTextColor(scheduleColor);
-    albumNavIcon.setColorFilter(albumColor);
-    scheduleNavIcon.setColorFilter(scheduleColor);
-    albumNavButton.setBackgroundResource(schedule ? android.R.color.transparent : R.drawable.bg_bottom_nav_selected);
-    scheduleNavButton.setBackgroundResource(schedule ? R.drawable.bg_bottom_nav_selected : android.R.color.transparent);
-    if (schedule) loadCachedSchedules();
-  }
-
-  private void loadSchedules() {
-    if (childId.isEmpty()) {
-      Toast.makeText(this, "먼저 키즈노트 계정을 연결해 주세요.", Toast.LENGTH_LONG).show();
-      return;
-    }
-    String targetYear = scheduleYearSpinner.getSelectedItem().toString().replace("년", "");
-    Button button = findViewById(R.id.analyzeScheduleButton);
-    button.setEnabled(false);
-    button.setText("분석 중…");
-    scheduleCountText.setText("새로운 미래 일정과 준비물을 확인하는 중");
-    networkIo.execute(() -> {
-      LinkedHashMap<String, ScheduleItem> found = new LinkedHashMap<>();
-      for (ScheduleItem cached : schedules) found.put(scheduleKey(cached), cached);
-      int previousCount = found.size();
-      String errorMessage = null;
-      try {
-        String next = "https://www.kidsnote.com/api/v1_2/children/" + childId + "/reports/?page_size=5000";
-        for (int page = 0; next != null && page < 50; page++) {
-          JSONObject payload = requestJson(next);
-          JSONArray items = payload.optJSONArray("results");
-          if (items == null) items = payload.optJSONArray("reports");
-          if (items == null) items = payload.optJSONArray("data");
-          if (items != null) for (int i = 0; i < items.length(); i++) {
-            JSONObject item = items.optJSONObject(i);
-            if (item != null) extractSchedules(item, targetYear, found);
-          }
-          next = payload.isNull("next") ? null : payload.optString("next", null);
-          if (next != null && next.isEmpty()) next = null;
-        }
-      } catch (Exception error) {
-        errorMessage = error.getMessage();
-      }
-      String failure = errorMessage;
-      int addedCount = Math.max(0, found.size() - previousCount);
-      runOnUiThread(() -> {
-        schedules.clear();
-        schedules.addAll(found.values());
-        schedules.sort(Comparator.comparing((ScheduleItem item) -> item.date).thenComparing(item -> item.time));
-        saveCachedSchedules(targetYear);
-        ((BaseAdapter) scheduleList.getAdapter()).notifyDataSetChanged();
-        button.setEnabled(true);
-        button.setText("새 일정 확인");
-        if (failure != null) scheduleCountText.setText("불러오기 실패 · 저장된 일정은 그대로 유지됩니다");
-        else if (schedules.isEmpty()) scheduleCountText.setText(targetYear + "년 남은 일정을 찾지 못했습니다");
-        else scheduleCountText.setText("앞으로의 일정 " + schedules.size() + "개 · 새로 추가 " + addedCount + "개");
-        scheduleEmptyState.setVisibility(schedules.isEmpty() ? View.VISIBLE : View.GONE);
-      });
-    });
-  }
-
-  private void extractSchedules(JSONObject item, String targetYear, Map<String, ScheduleItem> found) {
-    String written = first(item, "date_written", "created", "created_at");
-    String raw = collectScheduleText(item);
-    String text = android.text.Html.fromHtml(raw, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
-        .replace('\u00a0', ' ').replaceAll("\\s+", " ").trim();
-    if (text.length() < 4) return;
-    String itemTitle = first(item, "title", "subject", "name");
-    Pattern fullDate = Pattern.compile("(20\\d{2})\\s*[년./-]\\s*(1[0-2]|0?[1-9])\\s*[월./-]\\s*(3[01]|[12]\\d|0?[1-9])\\s*일?");
-    Matcher full = fullDate.matcher(text);
-    while (full.find()) addScheduleMatch(text, itemTitle, written, full.start(), full.end(),
-        full.group(1), full.group(2), full.group(3), targetYear, found);
-
-    Pattern monthDay = Pattern.compile("(?<!\\d)(1[0-2]|0?[1-9])\\s*월\\s*(3[01]|[12]\\d|0?[1-9])\\s*일");
-    Matcher shortDate = monthDay.matcher(text);
-    while (shortDate.find()) {
-      if (fullDate.matcher(text.substring(Math.max(0, shortDate.start() - 8), shortDate.end())).find()) continue;
-      String inferredYear = inferEventYear(written, shortDate.group(1));
-      addScheduleMatch(text, itemTitle, written, shortDate.start(), shortDate.end(), inferredYear,
-          shortDate.group(1), shortDate.group(2), targetYear, found);
-    }
-  }
-
-  private void addScheduleMatch(String text, String itemTitle, String written, int start, int end,
-      String year, String month, String day, String targetYear, Map<String, ScheduleItem> found) {
-    if (!targetYear.equals(year)) return;
-    int from = Math.max(0, Math.max(text.lastIndexOf('.', start), text.lastIndexOf('\n', start)) + 1);
-    int period = text.indexOf('.', end);
-    int to = period < 0 ? Math.min(text.length(), end + 70) : Math.min(text.length(), period + 1);
-    String context = text.substring(from, to).trim();
-    if (context.length() < 4) return;
-    String date = String.format(Locale.US, "%04d-%02d-%02d", Integer.parseInt(year), Integer.parseInt(month), Integer.parseInt(day));
-    if (date.compareTo(todayDate()) < 0) return;
-    Matcher timeMatcher = Pattern.compile("(?:(오전|오후)\\s*)?([01]?\\d|2[0-3])\\s*시(?:\\s*([0-5]?\\d)\\s*분)?").matcher(context);
-    String time = "";
-    if (timeMatcher.find()) {
-      int hour = Integer.parseInt(timeMatcher.group(2));
-      if ("오후".equals(timeMatcher.group(1)) && hour < 12) hour += 12;
-      if ("오전".equals(timeMatcher.group(1)) && hour == 12) hour = 0;
-      time = String.format(Locale.US, "%02d:%02d", hour,
-          timeMatcher.group(3) == null ? 0 : Integer.parseInt(timeMatcher.group(3)));
-    }
-    String preparation = extractPreparation(context);
-    String title = cleanScheduleTitle(context, year, month, day, time, preparation);
-    if (title.isEmpty()) title = itemTitle.trim();
-    title = cleanSummaryTitle(title);
-    if (title.isEmpty() || title.matches("(?i).*(알림장|키즈노트|공지사항).*")) title = "예정된 일정";
-    if (title.length() > 60) title = title.substring(0, 60) + "…";
-    ScheduleItem schedule = new ScheduleItem(date, time, title, preparation, written);
-    found.putIfAbsent(scheduleKey(schedule), schedule);
-  }
-
-  private static String cleanScheduleTitle(String context, String year, String month, String day,
-      String time, String preparation) {
-    String title = context
-        .replaceFirst("(?i)준비물\\s*[:：]?\\s*.*$", "")
-        .replaceAll("20\\d{2}\\s*[년./-]\\s*", "")
-        .replaceFirst("(?<!\\d)0?" + Integer.parseInt(month) + "\\s*월\\s*0?" + Integer.parseInt(day) + "\\s*일", "")
-        .replaceAll("(?:(오전|오후)\\s*)?([01]?\\d|2[0-3])\\s*시(?:\\s*([0-5]?\\d)\\s*분)?", "")
-        .replaceAll("^[\\s:：,.-]+|[\\s:：,.-]+$", "").replaceAll("\\s+", " ").trim();
-    return cleanSummaryTitle(title);
-  }
-
-  private static String extractPreparation(String context) {
-    Matcher matcher = Pattern.compile("(?i)(?:준비물|챙길 것|지참물|복장)\\s*[:：]?\\s*(.{1,100}?)(?=\\s+-\\s+(?:일시|날짜|장소|준비물|지참물|복장)\\s*[:：]|[.!?]|$)").matcher(context);
-    if (!matcher.find()) return "";
-    return matcher.group(1).replaceAll("\\s+", " ").trim();
-  }
-
-  private static String cleanSummaryTitle(String value) {
-    return value.replaceFirst("(?i)\\s*-?\\s*(?:일시|날짜|장소|준비물|챙길 것|지참물|복장)\\s*[:：].*$", "")
-        .replaceAll("^[\\s:：,.-]+|[\\s:：,.-]+$", "").replaceAll("\\s+", " ").trim();
-  }
-
-  private static String scheduleKey(ScheduleItem item) {
-    return item.date + "|" + item.time + "|" + item.title.replaceAll("[^가-힣a-zA-Z0-9]", "").toLowerCase(Locale.KOREA);
-  }
-
-  private static String todayDate() {
-    return new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US).format(new Date());
-  }
-
-  private String scheduleCacheKey(String year) {
-    String account = childId.isEmpty() ? (loginId.isEmpty() ? "default" : loginId) : childId;
-    return "schedule_cache_v2_" + account + "_" + year;
-  }
-
-  private void loadCachedSchedules() {
-    if (scheduleYearSpinner.getSelectedItem() == null) return;
-    String year = scheduleYearSpinner.getSelectedItem().toString().replace("년", "");
-    ArrayList<ScheduleItem> cached = new ArrayList<>();
-    try {
-      JSONArray array = new JSONArray(getPreferences(MODE_PRIVATE).getString(scheduleCacheKey(year), "[]"));
-      for (int i = 0; i < array.length(); i++) {
-        JSONObject value = array.optJSONObject(i);
-        if (value == null) continue;
-        String storedTitle = value.optString("title");
-        String storedPreparation = value.optString("preparation");
-        if (storedPreparation.isEmpty()) storedPreparation = extractPreparation(storedTitle);
-        ScheduleItem item = new ScheduleItem(value.optString("date"), value.optString("time"),
-            cleanSummaryTitle(storedTitle), storedPreparation, value.optString("written"));
-        if (item.date.compareTo(todayDate()) >= 0) cached.add(item);
-      }
-    } catch (JSONException ignored) {}
-    cached.sort(Comparator.comparing((ScheduleItem item) -> item.date).thenComparing(item -> item.time));
-    schedules.clear();
-    schedules.addAll(cached);
-    ((BaseAdapter) scheduleList.getAdapter()).notifyDataSetChanged();
-    scheduleCountText.setText(cached.isEmpty() ? year + "년 저장된 미래 일정이 없습니다"
-        : "저장된 미래 일정 " + cached.size() + "개 · 바로 표시됨");
-    scheduleEmptyState.setVisibility(cached.isEmpty() ? View.VISIBLE : View.GONE);
-  }
-
-  private void saveCachedSchedules(String year) {
-    JSONArray array = new JSONArray();
-    for (ScheduleItem item : schedules) {
-      if (!item.date.startsWith(year) || item.date.compareTo(todayDate()) < 0) continue;
-      try {
-        JSONObject value = new JSONObject();
-        value.put("date", item.date); value.put("time", item.time); value.put("title", item.title);
-        value.put("preparation", item.preparation); value.put("written", item.written);
-        array.put(value);
-      } catch (JSONException ignored) {}
-    }
-    getPreferences(MODE_PRIVATE).edit().putString(scheduleCacheKey(year), array.toString()).apply();
-  }
-
-  private static String inferEventYear(String written, String month) {
-    String year = yearOf(written);
-    Matcher writtenMonth = Pattern.compile("20\\d{2}-(\\d{2})").matcher(written == null ? "" : written);
-    if (year.isEmpty()) year = Integer.toString(Calendar.getInstance().get(Calendar.YEAR));
-    if (writtenMonth.find() && Integer.parseInt(writtenMonth.group(1)) >= 11 && Integer.parseInt(month) <= 2)
-      year = Integer.toString(Integer.parseInt(year) + 1);
-    return year;
-  }
-
-  private static String collectScheduleText(JSONObject item) {
-    StringBuilder out = new StringBuilder();
-    String[] keys = {"title", "subject", "content", "contents", "description", "body", "text", "memo", "notice", "message"};
-    for (String key : keys) appendJsonText(item.opt(key), out, 0);
-    return out.toString();
   }
 
   private static void appendJsonText(Object value, StringBuilder out, int depth) {
@@ -671,6 +442,7 @@ public class MainActivity extends Activity {
     final int generation = ++loadGeneration;
     thumbnailIo.getQueue().clear();
     photos.clear();
+    notices.clear();
     ((BaseAdapter) gallery.getAdapter()).notifyDataSetChanged();
     galleryTitle.setText(year + "년 사진");
     emptyState.setVisibility(View.VISIBLE);
@@ -679,18 +451,21 @@ public class MainActivity extends Activity {
     networkIo.execute(() -> {
       try {
         LinkedHashMap<String, Photo> found = new LinkedHashMap<>();
-        loadCollection("reports", year, found);
-        loadCollection("albums", year, found);
+        LinkedHashMap<String, Notice> foundNotices = new LinkedHashMap<>();
+        loadCollection("reports", year, found, foundNotices);
+        loadCollection("albums", year, found, foundNotices);
         runOnUiThread(() -> {
           if (generation != loadGeneration) return;
           photos.clear(); photos.addAll(found.values());
+          notices.clear(); notices.addAll(foundNotices.values());
           photos.sort((left, right) -> right.date.compareTo(left.date));
+          notices.sort((left, right) -> right.date.compareTo(left.date));
           ((BaseAdapter) gallery.getAdapter()).notifyDataSetChanged();
           galleryTitle.setText(year + "년 사진");
-          countText.setText(photos.isEmpty() ? "가져온 사진이 없습니다" : photos.size() + "장의 사진 · 눌러서 크게 보기");
+          countText.setText(photos.size() + "장의 사진 · 알림장 " + notices.size() + "개");
           emptyState.setVisibility(photos.isEmpty() ? View.VISIBLE : View.GONE);
-          downloadButton.setEnabled(!photos.isEmpty());
-          setLoading(false, photos.isEmpty() ? "사진이 없습니다" : photos.size() + "장의 사진을 가져왔습니다");
+          downloadButton.setEnabled(!photos.isEmpty() || !notices.isEmpty());
+          setLoading(false, "사진 " + photos.size() + "장 · 알림장 " + notices.size() + "개를 가져왔습니다");
         });
       } catch (Exception error) {
         runOnUiThread(() -> { if (generation == loadGeneration) setLoading(false, "불러오기 실패: " + error.getMessage()); });
@@ -698,7 +473,8 @@ public class MainActivity extends Activity {
     });
   }
 
-  private void loadCollection(String type, String year, Map<String, Photo> found) throws Exception {
+  private void loadCollection(String type, String year, Map<String, Photo> found,
+      Map<String, Notice> foundNotices) throws Exception {
     String next = "https://www.kidsnote.com/api/v1_2/children/" + childId + "/" + type + "/?page_size=5000";
     for (int page = 0; next != null && page < 50; page++) {
       JSONObject payload = requestJson(next);
@@ -713,10 +489,33 @@ public class MainActivity extends Activity {
             : first(item, "date_written");
         if (!year.equals(yearOf(date))) continue;
         collectAttachedImages(item, date, found);
+        if (type.equals("reports")) collectNotice(item, date, foundNotices);
       }
       next = payload.isNull("next") ? null : payload.optString("next", null);
       if (next != null && next.isEmpty()) next = null;
     }
+  }
+
+  private void collectNotice(JSONObject item, String date, Map<String, Notice> found) {
+    String raw = collectNoticeText(item);
+    String text = android.text.Html.fromHtml(raw, android.text.Html.FROM_HTML_MODE_LEGACY).toString()
+        .replace('\u00a0', ' ').replaceAll("[ \\t]+\\n", "\\n").replaceAll("\\n{3,}", "\\n\\n").trim();
+    if (text.isEmpty()) return;
+    String id = first(item, "id", "report_id", "uuid");
+    String title = first(item, "title", "subject", "name");
+    String key = id.isEmpty() ? date + "|" + Integer.toHexString(text.hashCode()) : id;
+    found.putIfAbsent(key, new Notice(date, title, text));
+  }
+
+  private static String collectNoticeText(JSONObject item) {
+    StringBuilder out = new StringBuilder();
+    String[] keys = {"content", "contents", "description", "body", "text", "memo", "notice", "message"};
+    for (String key : keys) appendJsonText(item.opt(key), out, 0);
+    if (out.toString().trim().isEmpty()) {
+      String title = first(item, "title", "subject", "name");
+      if (!title.isEmpty()) out.append(title);
+    }
+    return out.toString();
   }
 
   private JSONObject requestJson(String url) throws Exception {
@@ -756,15 +555,23 @@ public class MainActivity extends Activity {
   }
 
   private void addBestImage(Object value, String date, Map<String, Photo> found) {
-    String url = "";
-    if (value instanceof String) url = (String) value;
+    String originalUrl = "";
+    String thumbnailUrl = "";
+    if (value instanceof String) originalUrl = (String) value;
     else if (value instanceof JSONObject) {
       JSONObject image = (JSONObject) value;
-      url = first(image, "original", "large", "url", "file", "image", "thumbnail");
+      originalUrl = first(image, "original", "large", "url", "file", "image", "medium", "small", "thumbnail");
+      thumbnailUrl = first(image, "thumbnail", "thumb", "small", "medium", "large");
     }
-    if (!url.startsWith("http") || !url.matches("(?i).*(jpg|jpeg|png|webp|gif|heic)(\\?.*)?$")) return;
-    String key = url.replaceAll("\\?.*$", "").replaceAll("(?i)/(thumb|thumbnail|small|medium|large|original)/", "/");
-    found.putIfAbsent(key, new Photo(url, date));
+    if (!isImageUrl(originalUrl)) return;
+    if (!isImageUrl(thumbnailUrl)) thumbnailUrl = originalUrl;
+    String key = originalUrl.replaceAll("\\?.*$", "").replaceAll("(?i)/(thumb|thumbnail|small|medium|large|original)/", "/");
+    found.putIfAbsent(key, new Photo(originalUrl, thumbnailUrl, date));
+  }
+
+  private static boolean isImageUrl(String url) {
+    return url != null && url.startsWith("http")
+        && url.matches("(?i).*(jpg|jpeg|png|webp|gif|heic)(\\?.*)?$");
   }
 
   private byte[] downloadBytes(String url) throws Exception {
@@ -855,8 +662,10 @@ public class MainActivity extends Activity {
     return decodeImage(downloadBytes(url), maxDimension);
   }
 
-  private void saveAll() {
-    if (photos.isEmpty()) return;
+  private void saveAll(int folderMode) {
+    if (photos.isEmpty() && notices.isEmpty()) return;
+    final String targetYear = selectedYear();
+    pendingFolderMode = folderMode;
     pendingSingleSave = null;
     pendingSingleSaveButton = null;
     if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P
@@ -864,44 +673,67 @@ public class MainActivity extends Activity {
       requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, STORAGE_PERMISSION_REQUEST);
       return;
     }
-    progress.setMax(photos.size()); progress.setProgress(0); progress.setVisibility(View.VISIBLE);
+    progress.setMax(photos.size() + notices.size()); progress.setProgress(0); progress.setVisibility(View.VISIBLE);
     downloadButton.setEnabled(false);
     networkIo.execute(() -> {
       int saved = 0;
+      int noticeSaved = 0;
       for (int i = 0; i < photos.size(); i++) {
         Bitmap bitmap = null;
         try {
           bitmap = loadOriginal(photos.get(i).url, 0);
-          String fileName = "kidsnote_" + selectedYear() + "_" + String.format(Locale.US, "%04d", i + 1) + ".jpg";
-          writeBitmapToGallery(bitmap, fileName, selectedYear());
+          Photo photo = photos.get(i);
+          String date = normalizedDate(photo.date, targetYear);
+          String fileName = "kidsnote_" + date.replace("-", "") + "_" + Integer.toHexString(photo.url.hashCode()) + ".jpg";
+          writeBitmapToGallery(bitmap, fileName, relativeFolder(date, folderMode));
           saved++;
         } catch (Exception ignored) {
         } finally { if (bitmap != null && !bitmap.isRecycled()) bitmap.recycle(); }
         int done = i + 1;
         runOnUiThread(() -> progress.setProgress(done));
       }
+      LinkedHashMap<String, ArrayList<Notice>> noticesByDate = new LinkedHashMap<>();
+      for (Notice notice : notices) {
+        String date = normalizedDate(notice.date, targetYear);
+        noticesByDate.computeIfAbsent(date, ignored -> new ArrayList<>()).add(notice);
+      }
+      int noticeProgress = 0;
+      for (Map.Entry<String, ArrayList<Notice>> entry : noticesByDate.entrySet()) {
+        String date = entry.getKey();
+        try {
+          String fileName = folderMode == FOLDER_BY_DAY ? "알림장.txt" : "알림장_" + date + ".txt";
+          writeTextFile(fileName, relativeFolder(date, folderMode), buildNoticeText(date, entry.getValue()));
+          noticeSaved += entry.getValue().size();
+        } catch (Exception ignored) {}
+        noticeProgress += entry.getValue().size();
+        int done = photos.size() + noticeProgress;
+        runOnUiThread(() -> progress.setProgress(done));
+      }
       int finalSaved = saved;
+      int finalNoticeSaved = noticeSaved;
+      String root = "Pictures/KidsNote/" + targetYear;
       runOnUiThread(() -> {
         progress.setVisibility(View.GONE); downloadButton.setEnabled(true);
-        Toast.makeText(this, "Pictures/KidsNote/" + selectedYear() + "에 " + finalSaved + "장 저장됨", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, root + "에 사진 " + finalSaved + "장 · 알림장 " + finalNoticeSaved + "개 저장됨", Toast.LENGTH_LONG).show();
         if (savedTabContent.getVisibility() == View.VISIBLE) loadSavedPhotos();
       });
     });
   }
 
-  private void writeBitmapToGallery(Bitmap bitmap, String fileName, String year) throws IOException {
+  private void writeBitmapToGallery(Bitmap bitmap, String fileName, String relativeFolder) throws IOException {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
       ContentValues values = new ContentValues();
       values.put(MediaStore.Images.Media.DISPLAY_NAME, fileName);
       values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
-      values.put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/KidsNote/" + year);
+      values.put(MediaStore.Images.Media.RELATIVE_PATH, relativeFolder);
       Uri uri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
       if (uri == null) throw new IOException("사진 저장 위치를 만들 수 없습니다.");
       try (OutputStream out = getContentResolver().openOutputStream(uri)) {
         if (out == null || !bitmap.compress(Bitmap.CompressFormat.JPEG, 95, out)) throw new IOException("사진 저장 실패");
       }
     } else {
-      File directory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "KidsNote/" + year);
+      File directory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+          relativeFolder.replaceFirst("^Pictures/", ""));
       if (!directory.exists() && !directory.mkdirs()) throw new IOException("사진 폴더를 만들 수 없습니다.");
       File target = new File(directory, fileName);
       try (OutputStream out = new FileOutputStream(target)) {
@@ -909,6 +741,70 @@ public class MainActivity extends Activity {
       }
       MediaScannerConnection.scanFile(this, new String[]{target.getAbsolutePath()}, new String[]{"image/jpeg"}, null);
     }
+  }
+
+  private void writeTextFile(String fileName, String relativeFolder, String text) throws IOException {
+    byte[] data = text.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      Uri collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY);
+      Uri target = findStoredFile(collection, relativeFolder, fileName);
+      if (target == null) {
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.MediaColumns.DISPLAY_NAME, fileName);
+        values.put(MediaStore.MediaColumns.MIME_TYPE, "text/plain");
+        values.put(MediaStore.MediaColumns.RELATIVE_PATH, relativeFolder);
+        target = getContentResolver().insert(collection, values);
+      }
+      if (target == null) throw new IOException("알림장 저장 위치를 만들 수 없습니다.");
+      try (OutputStream out = getContentResolver().openOutputStream(target, "wt")) {
+        if (out == null) throw new IOException("알림장 저장 실패");
+        out.write(data);
+      }
+    } else {
+      File directory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES),
+          relativeFolder.replaceFirst("^Pictures/", ""));
+      if (!directory.exists() && !directory.mkdirs()) throw new IOException("알림장 폴더를 만들 수 없습니다.");
+      File target = new File(directory, fileName);
+      try (OutputStream out = new FileOutputStream(target, false)) { out.write(data); }
+      MediaScannerConnection.scanFile(this, new String[]{target.getAbsolutePath()}, new String[]{"text/plain"}, null);
+    }
+  }
+
+  private Uri findStoredFile(Uri collection, String relativeFolder, String fileName) {
+    String[] projection = {MediaStore.MediaColumns._ID};
+    String selection = MediaStore.MediaColumns.RELATIVE_PATH + "=? AND "
+        + MediaStore.MediaColumns.DISPLAY_NAME + "=?";
+    try (Cursor cursor = getContentResolver().query(collection, projection, selection,
+        new String[]{relativeFolder.endsWith("/") ? relativeFolder : relativeFolder + "/", fileName}, null)) {
+      if (cursor != null && cursor.moveToFirst())
+        return Uri.withAppendedPath(collection, Long.toString(cursor.getLong(0)));
+    } catch (Exception ignored) {}
+    return null;
+  }
+
+  private static String normalizedDate(String value, String fallbackYear) {
+    Matcher matcher = Pattern.compile("(20\\d{2})\\D(0?[1-9]|1[0-2])\\D(0?[1-9]|[12]\\d|3[01])").matcher(value == null ? "" : value);
+    if (!matcher.find()) return fallbackYear + "-01-01";
+    return String.format(Locale.US, "%04d-%02d-%02d", Integer.parseInt(matcher.group(1)),
+        Integer.parseInt(matcher.group(2)), Integer.parseInt(matcher.group(3)));
+  }
+
+  private static String relativeFolder(String date, int folderMode) {
+    String[] parts = date.split("-");
+    String path = "Pictures/KidsNote/" + parts[0] + "년/" + parts[1] + "월";
+    return folderMode == FOLDER_BY_DAY ? path + "/" + parts[2] + "일" : path;
+  }
+
+  private static String buildNoticeText(String date, List<Notice> dayNotices) {
+    StringBuilder text = new StringBuilder();
+    text.append("키즈노트 알림장\n날짜: ").append(date).append("\n");
+    for (int i = 0; i < dayNotices.size(); i++) {
+      Notice notice = dayNotices.get(i);
+      text.append("\n========================================\n");
+      if (!notice.title.isEmpty()) text.append(notice.title).append("\n\n");
+      text.append(notice.text.trim()).append("\n");
+    }
+    return text.toString();
   }
 
   private void saveSinglePhoto(Photo photo, Button button) {
@@ -929,7 +825,8 @@ public class MainActivity extends Activity {
         String year = yearOf(photo.date).isEmpty() ? selectedYear() : yearOf(photo.date);
         String dateToken = photo.date.length() >= 10 ? photo.date.substring(0, 10).replaceAll("\\D", "") : year;
         String fileName = "kidsnote_" + dateToken + "_" + Integer.toHexString(photo.url.hashCode()) + ".jpg";
-        writeBitmapToGallery(bitmap, fileName, year);
+        String date = normalizedDate(photo.date, year);
+        writeBitmapToGallery(bitmap, fileName, relativeFolder(date, pendingFolderMode));
         success = true;
       } catch (Exception ignored) {
       } finally { if (bitmap != null && !bitmap.isRecycled()) bitmap.recycle(); }
@@ -943,13 +840,32 @@ public class MainActivity extends Activity {
     });
   }
 
-  private void confirmBackup() {
-    if (photos.isEmpty()) return;
+  private void chooseBackupFoldering() {
+    if (photos.isEmpty() && notices.isEmpty()) return;
+    int savedMode = getPreferences(MODE_PRIVATE).getInt("backup_folder_mode", FOLDER_BY_DAY);
+    final int[] selected = {savedMode};
     new AlertDialog.Builder(this)
-        .setTitle(selectedYear() + "년 원본 사진을 저장할까요?")
-        .setMessage("현재 화면의 이미지는 임시 썸네일입니다.\n\n" + photos.size() + "장의 원본을 이 기기의\nPictures/KidsNote/" + selectedYear() + " 폴더에 저장합니다.")
+        .setTitle("폴더 구성을 선택해 주세요")
+        .setSingleChoiceItems(new String[]{"년 / 월 / 일", "년 / 월"}, savedMode,
+            (dialog, which) -> selected[0] = which)
         .setNegativeButton("취소", null)
-        .setPositiveButton("원본 저장", (dialog, which) -> saveAll())
+        .setPositiveButton("다음", (dialog, which) -> {
+          getPreferences(MODE_PRIVATE).edit().putInt("backup_folder_mode", selected[0]).apply();
+          confirmBackup(selected[0]);
+        })
+        .show();
+  }
+
+  private void confirmBackup(int folderMode) {
+    String example = folderMode == FOLDER_BY_DAY
+        ? "Pictures/KidsNote/" + selectedYear() + "/08/19"
+        : "Pictures/KidsNote/" + selectedYear() + "/08";
+    new AlertDialog.Builder(this)
+        .setTitle(selectedYear() + "년 자료를 저장할까요?")
+        .setMessage("사진 " + photos.size() + "장과 알림장 " + notices.size() + "개를 저장합니다.\n\n예시: " + example
+            + (folderMode == FOLDER_BY_DAY ? "\n해당 날짜 폴더에 사진과 알림장.txt가 함께 들어갑니다." : "\n월 폴더에 사진과 날짜별 알림장 텍스트가 들어갑니다."))
+        .setNegativeButton("취소", null)
+        .setPositiveButton("저장", (dialog, which) -> saveAll(folderMode))
         .show();
   }
 
@@ -961,7 +877,7 @@ public class MainActivity extends Activity {
         Photo photo = pendingSingleSave; Button button = pendingSingleSaveButton;
         pendingSingleSave = null; pendingSingleSaveButton = null;
         saveSinglePhoto(photo, button);
-      } else saveAll();
+      } else saveAll(pendingFolderMode);
     } else Toast.makeText(this, "사진을 저장하려면 저장소 권한이 필요합니다.", Toast.LENGTH_LONG).show();
   }
 
@@ -1128,7 +1044,7 @@ public class MainActivity extends Activity {
       image.setAlpha(1f);
       image.setBackgroundColor(Color.rgb(226, 234, 232));
       image.setImageDrawable(null);
-      String url = items.get(position).url;
+      String url = items.get(position).thumbnailUrl;
       Bitmap cached = thumbnailCache.get(url);
       if (cached != null) image.setImageBitmap(cached);
       else {
@@ -1149,65 +1065,6 @@ public class MainActivity extends Activity {
       }
       image.setTag(url);
       return image;
-    }
-  }
-
-  private class ScheduleAdapter extends BaseAdapter {
-    public int getCount() { return schedules.size(); }
-    public Object getItem(int position) { return schedules.get(position); }
-    public long getItemId(int position) { return position; }
-    public View getView(int position, View convert, android.view.ViewGroup parent) {
-      LinearLayout card = convert instanceof LinearLayout ? (LinearLayout) convert : new LinearLayout(MainActivity.this);
-      card.removeAllViews();
-      card.setOrientation(LinearLayout.VERTICAL);
-      card.setPadding(dp(14), dp(12), dp(14), dp(12));
-      card.setBackgroundColor(Color.WHITE);
-
-      ScheduleItem item = schedules.get(position);
-      TextView date = new TextView(MainActivity.this);
-      String[] parts = item.date.split("-");
-      String clearDate = parts.length == 3
-          ? Integer.parseInt(parts[0]) + "년  " + Integer.parseInt(parts[1]) + "월  " + Integer.parseInt(parts[2])
-              + "일  (" + weekdayOf(item.date) + ")"
-          : item.date;
-      date.setText(clearDate + (item.time.isEmpty() ? "" : "   " + item.time));
-      date.setTextColor(getColor(R.color.mint_dark));
-      date.setTextSize(12);
-      date.setTypeface(null, Typeface.BOLD);
-      card.addView(date);
-
-      TextView title = new TextView(MainActivity.this);
-      title.setText(item.title);
-      title.setTextColor(getColor(R.color.text_primary));
-      title.setTextSize(15);
-      title.setTypeface(null, Typeface.BOLD);
-      LinearLayout.LayoutParams titleParams = new LinearLayout.LayoutParams(-1, -2);
-      titleParams.topMargin = dp(5);
-      card.addView(title, titleParams);
-
-      if (!item.preparation.isEmpty()) {
-        TextView preparation = new TextView(MainActivity.this);
-        preparation.setText("준비물  ·  " + item.preparation);
-        preparation.setTextColor(getColor(R.color.text_secondary));
-        preparation.setTextSize(12);
-        preparation.setMaxLines(2);
-        preparation.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        LinearLayout.LayoutParams preparationParams = new LinearLayout.LayoutParams(-1, -2);
-        preparationParams.topMargin = dp(6);
-        card.addView(preparation, preparationParams);
-      }
-      return card;
-    }
-  }
-
-  private static String weekdayOf(String date) {
-    try {
-      java.text.SimpleDateFormat parser = new java.text.SimpleDateFormat("yyyy-MM-dd", Locale.US);
-      parser.setLenient(false);
-      Date parsed = parser.parse(date);
-      return new java.text.SimpleDateFormat("E", Locale.KOREA).format(parsed);
-    } catch (Exception ignored) {
-      return "";
     }
   }
 
@@ -1330,20 +1187,22 @@ public class MainActivity extends Activity {
   }
   private int dp(int value) { return (int) (value * getResources().getDisplayMetrics().density); }
   private static class Photo {
-    final String url, date;
-    Photo(String url, String date) { this.url = url; this.date = date == null ? "" : date; }
-  }
-  private static class ScheduleItem {
-    final String date, time, title, preparation, written;
-    ScheduleItem(String date, String time, String title, String preparation, String written) {
-      this.date = date;
-      this.time = time;
-      this.title = title;
-      this.preparation = preparation;
-      this.written = written;
+    final String url, thumbnailUrl, date;
+    Photo(String url, String date) { this(url, url, date); }
+    Photo(String url, String thumbnailUrl, String date) {
+      this.url = url;
+      this.thumbnailUrl = thumbnailUrl;
+      this.date = date == null ? "" : date;
     }
   }
-
+  private static class Notice {
+    final String date, title, text;
+    Notice(String date, String title, String text) {
+      this.date = date == null ? "" : date;
+      this.title = title == null ? "" : title.trim();
+      this.text = text == null ? "" : text.trim();
+    }
+  }
   @Override protected void onDestroy() {
     mainHandler.removeCallbacks(sessionTimeout);
     webView.destroy();

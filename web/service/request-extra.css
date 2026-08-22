@@ -1,0 +1,6 @@
+textarea{width:100%;min-height:92px;padding:12px 14px;border:1px solid #cbd9d0;border-radius:11px;background:#fff;font:inherit;line-height:1.5;resize:vertical}
+textarea:focus{outline:3px solid #347a5520;border-color:var(--green)}
+label>span small{color:var(--muted);font-weight:500}
+.field-help{display:block;margin-top:5px;color:var(--muted);font-size:12px}
+.request-options{margin:0;padding:0;border:0}.request-options legend{margin-bottom:8px;font-weight:700}.choice-row{display:flex!important;flex-direction:row!important;align-items:flex-start;gap:10px;padding:13px 14px;border:1px solid #dbe7df;border-radius:12px;background:#f6faf7}.choice-row input{width:20px;height:20px;margin:2px 0 0;accent-color:#347a55}.choice-row span{display:flex;flex-direction:column;gap:2px}.choice-row small{color:#718078;font-weight:400;line-height:1.45}
+.top{width:calc(100% - 24px);max-width:1160px}.request-wrap{width:calc(100% - 24px);max-width:620px}.request-card,form,form>*,label,.choice-row span{min-width:0}.choice-row small,.field-help,.agree span{overflow-wrap:anywhere}@media(max-width:520px){.request-card h1{font-size:30px}.choice-row{padding:12px}.agree span{line-height:1.45}}

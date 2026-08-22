@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>키즈노트 전달 관리자</title><link rel="stylesheet" href="/kidsnote-admin.css?v=2"><link rel="stylesheet" href="/kidsnote-admin-extra.css?v=2"><link rel="stylesheet" href="/kidsnote-admin-requests.css?v=3"><link rel="stylesheet" href="/kidsnote-admin-note.css?v=1"></head>
+<body>
+  <section id="login" class="login-card"><div class="logo">K</div><p class="eyebrow">KIDSNOTE DELIVERY</p><h1>관리자 로그인</h1><p class="muted">관리자 비밀번호를 입력하세요.</p><form id="login-form"><input id="admin-password" type="password" autocomplete="current-password" placeholder="관리자 비밀번호" required><button>로그인</button></form><p id="login-error" class="error"></p></section>
+  <main id="app" hidden>
+    <header><div><p class="eyebrow">KIDSNOTE DELIVERY</p><h1>사진 전달 관리자</h1><p class="muted">사진을 자동 수집해 7일간 유효한 다운로드 링크를 이메일로 보냅니다.</p></div><button id="logout" class="ghost">로그아웃</button></header>
+    <section class="panel"><div class="panel-head"><div><h2>신청 대기 중</h2><p>신청을 수락하면 사진 수집과 이메일 발송이 시작됩니다.</p></div><span class="secure">● 암호화 보관</span></div><div id="requests" class="jobs"><p class="empty">대기 중인 신청이 없습니다.</p></div><p id="form-message" class="message"></p></section>
+    <section class="summary"><article><span>진행 중</span><strong id="active-count">0</strong></article><article><span>발송 완료</span><strong id="complete-count">0</strong></article><article><span>실패</span><strong id="failed-count">0</strong></article></section>
+    <section class="panel"><div class="panel-head"><div><h2>작업 현황</h2><p>페이지를 닫거나 다른 화면을 봐도 서버에서 계속 진행됩니다. 돌아오면 즉시 최신 상태로 갱신됩니다.</p></div><button id="refresh" class="ghost">새로고침</button></div><div id="server-running" class="server-running" hidden>● 서버에서 백그라운드 작업 중</div><div id="jobs" class="jobs"><p class="empty">등록된 작업이 없습니다.</p></div></section>
+  </main><script src="/kidsnote-admin.js?v=5"></script>
+</body></html>

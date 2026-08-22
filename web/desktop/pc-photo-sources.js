@@ -40,22 +40,36 @@ module.exports = function registerPcPhotoSources(app, dependencies) {
     if (!/^20\d{2}$/.test(year)) return res.status(400).json({ error: '조회할 연도를 확인해 주세요.' });
     try {
       const found = new Map();
-      for (const collection of ['reports', 'albums']) {
-        const entries = await fetchKidsNoteCollection(session.childId, session.cookie, collection, { enrollment: session.enrollment, maxPages: 50 });
-        for (const entry of entries) {
-          const takenAt = getKidsNoteItemDate(entry);
-          if (!takenAt.startsWith(year)) continue;
-          const sourceTitle = getKidsNoteItemTitle(entry);
-          for (const url of getKidsNoteImageUrlsFromItem(entry)) {
-            const id = crypto.createHash('sha256').update(url).digest('hex');
-            found.set(id, { id, url, takenAt, sourceTitle });
+      const rawChildren = Array.isArray(session.children) && session.children.length
+        ? session.children
+        : [{ id: session.childId, name: '', enrollment: session.enrollment }];
+      const seenNames = new Map();
+      const children = rawChildren.map((c, idx) => {
+        let clean = String(c.name || '').replace(/[\\/:*?"<>|\r\n\t]/g, '_').trim();
+        if (!clean) clean = c.id ? `자녀_${c.id}` : `자녀_${idx + 1}`;
+        const count = seenNames.get(clean) || 0;
+        seenNames.set(clean, count + 1);
+        const folderName = count > 0 ? `${clean}_${c.id || count + 1}` : clean;
+        return { ...c, folderName };
+      });
+      for (const child of children) {
+        for (const collection of ['reports', 'albums']) {
+          const entries = await fetchKidsNoteCollection(child.id, session.cookie, collection, { enrollment: child.enrollment || session.enrollment, maxPages: 50 });
+          for (const entry of entries) {
+            const takenAt = getKidsNoteItemDate(entry);
+            if (!takenAt.startsWith(year)) continue;
+            const sourceTitle = getKidsNoteItemTitle(entry);
+            for (const url of getKidsNoteImageUrlsFromItem(entry)) {
+              const id = crypto.createHash('sha256').update(url).digest('hex');
+              found.set(id, { id, url, takenAt, sourceTitle, childFolderName: child.folderName, childName: child.name, childId: child.id });
+            }
           }
         }
       }
       const set = getSet(session);
       found.forEach((item, id) => set.items.set(id, item));
       const photos = Array.from(found.values())
-        .map(({ id, takenAt, sourceTitle }) => ({ id, takenAt, sourceTitle }))
+        .map(({ id, takenAt, sourceTitle, childFolderName, childName }) => ({ id, takenAt, sourceTitle, childFolderName, childName }))
         .sort((a, b) => String(b.takenAt).localeCompare(String(a.takenAt)) || b.id.localeCompare(a.id));
       const dates = Array.from(new Set(photos.map(photo => photo.takenAt.slice(0, 10)).filter(Boolean))).sort().reverse();
       res.setHeader('Cache-Control', 'no-store');
@@ -92,7 +106,7 @@ module.exports = function registerPcPhotoSources(app, dependencies) {
     if (!items.length) return res.status(404).json({ error: '다운로드할 사진이 없습니다.' });
     res.setHeader('Content-Type', 'application/zip');
     res.setHeader('Content-Disposition', `attachment; filename="kidsnote-${range}.zip"`);
-    const archive = archiver('zip', { zlib: { level: 6 } });
+    const archive = archiver('zip', { zlib: { level: 0 } });
     archive.on('error', error => res.destroy(error));
     archive.pipe(res);
     try {
@@ -102,7 +116,10 @@ module.exports = function registerPcPhotoSources(app, dependencies) {
         const original = await fetchOriginal(item, session);
         const extension = /png/i.test(original.contentType) ? '.png' : /webp/i.test(original.contentType) ? '.webp' : '.jpg';
         const itemDate = item.takenAt.slice(0, 10);
-        archive.append(original.buffer, { name: `${itemDate}/kidsnote-${itemDate}-${String(index).padStart(4, '0')}${extension}` });
+        const match = itemDate.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        const dateFolder = match ? `${match[1]}년/${match[2]}월/${match[3]}일` : itemDate;
+        const entryPath = item.childFolderName ? `${item.childFolderName}/${dateFolder}` : dateFolder;
+        archive.append(original.buffer, { name: `${entryPath}/kidsnote-${itemDate}-${String(index).padStart(4, '0')}${extension}` });
       }
       await archive.finalize();
     } catch (error) {
