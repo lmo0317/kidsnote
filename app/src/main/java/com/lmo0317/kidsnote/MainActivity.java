@@ -33,6 +33,7 @@ public class MainActivity extends Activity {
   private final ThreadPoolExecutor thumbnailIo = new ThreadPoolExecutor(
       3, 3, 0L, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(192), new ThreadPoolExecutor.DiscardOldestPolicy());
   private final ArrayList<Photo> photos = new ArrayList<>();
+  private final ArrayList<Video> videos = new ArrayList<>();
   private final ArrayList<Notice> notices = new ArrayList<>();
   private final ArrayList<Photo> savedPhotos = new ArrayList<>();
   private final LruCache<String, Bitmap> thumbnailCache = new LruCache<String, Bitmap>(MEMORY_CACHE_LIMIT) {
@@ -442,6 +443,7 @@ public class MainActivity extends Activity {
     final int generation = ++loadGeneration;
     thumbnailIo.getQueue().clear();
     photos.clear();
+    videos.clear();
     notices.clear();
     ((BaseAdapter) gallery.getAdapter()).notifyDataSetChanged();
     galleryTitle.setText(year + "년 사진");
@@ -451,21 +453,24 @@ public class MainActivity extends Activity {
     networkIo.execute(() -> {
       try {
         LinkedHashMap<String, Photo> found = new LinkedHashMap<>();
+        LinkedHashMap<String, Video> foundVideos = new LinkedHashMap<>();
         LinkedHashMap<String, Notice> foundNotices = new LinkedHashMap<>();
-        loadCollection("reports", year, found, foundNotices);
-        loadCollection("albums", year, found, foundNotices);
+        loadCollection("reports", year, found, foundVideos, foundNotices);
+        loadCollection("albums", year, found, foundVideos, foundNotices);
         runOnUiThread(() -> {
           if (generation != loadGeneration) return;
           photos.clear(); photos.addAll(found.values());
+          videos.clear(); videos.addAll(foundVideos.values());
           notices.clear(); notices.addAll(foundNotices.values());
           photos.sort((left, right) -> right.date.compareTo(left.date));
+          videos.sort((left, right) -> right.date.compareTo(left.date));
           notices.sort((left, right) -> right.date.compareTo(left.date));
           ((BaseAdapter) gallery.getAdapter()).notifyDataSetChanged();
           galleryTitle.setText(year + "년 사진");
-          countText.setText(photos.size() + "장의 사진 · 알림장 " + notices.size() + "개");
-          emptyState.setVisibility(photos.isEmpty() ? View.VISIBLE : View.GONE);
-          downloadButton.setEnabled(!photos.isEmpty() || !notices.isEmpty());
-          setLoading(false, "사진 " + photos.size() + "장 · 알림장 " + notices.size() + "개를 가져왔습니다");
+          countText.setText(photos.size() + "장의 사진 · 영상 " + videos.size() + "개 · 알림장 " + notices.size() + "개");
+          emptyState.setVisibility(photos.isEmpty() && videos.isEmpty() ? View.VISIBLE : View.GONE);
+          downloadButton.setEnabled(!photos.isEmpty() || !videos.isEmpty() || !notices.isEmpty());
+          setLoading(false, "사진 " + photos.size() + "장 · 영상 " + videos.size() + "개 · 알림장 " + notices.size() + "개를 가져왔습니다");
         });
       } catch (Exception error) {
         runOnUiThread(() -> { if (generation == loadGeneration) setLoading(false, "불러오기 실패: " + error.getMessage()); });
@@ -474,7 +479,7 @@ public class MainActivity extends Activity {
   }
 
   private void loadCollection(String type, String year, Map<String, Photo> found,
-      Map<String, Notice> foundNotices) throws Exception {
+      Map<String, Video> foundVideos, Map<String, Notice> foundNotices) throws Exception {
     String next = "https://www.kidsnote.com/api/v1_2/children/" + childId + "/" + type + "/?page_size=5000";
     for (int page = 0; next != null && page < 50; page++) {
       JSONObject payload = requestJson(next);
@@ -489,6 +494,7 @@ public class MainActivity extends Activity {
             : first(item, "date_written");
         if (!year.equals(yearOf(date))) continue;
         collectAttachedImages(item, date, found);
+        collectAttachedVideo(item, date, foundVideos);
         if (type.equals("reports")) collectNotice(item, date, foundNotices);
       }
       next = payload.isNull("next") ? null : payload.optString("next", null);
@@ -572,6 +578,20 @@ public class MainActivity extends Activity {
   private static boolean isImageUrl(String url) {
     return url != null && url.startsWith("http")
         && url.matches("(?i).*(jpg|jpeg|png|webp|gif|heic)(\\?.*)?$");
+  }
+
+  private void collectAttachedVideo(JSONObject item, String date, Map<String, Video> found) {
+    JSONObject video = item.optJSONObject("attached_video");
+    if (video == null) return;
+    String url = first(video, "high", "low", "url", "file", "original");
+    if (!isVideoUrl(url)) return;
+    String key = url.replaceAll("\\?.*$", "").replaceAll("(?i)/(high|low|preview)/", "/");
+    found.putIfAbsent(key, new Video(url, date, first(video, "original_file_name", "name")));
+  }
+
+  private static boolean isVideoUrl(String url) {
+    return url != null && url.startsWith("http")
+        && url.matches("(?i).*(mp4|mov|m4v|webm|3gp)(\\?.*)?$");
   }
 
   private byte[] downloadBytes(String url) throws Exception {
@@ -663,7 +683,7 @@ public class MainActivity extends Activity {
   }
 
   private void saveAll(int folderMode) {
-    if (photos.isEmpty() && notices.isEmpty()) return;
+    if (photos.isEmpty() && videos.isEmpty() && notices.isEmpty()) return;
     final String targetYear = selectedYear();
     pendingFolderMode = folderMode;
     pendingSingleSave = null;
@@ -673,10 +693,11 @@ public class MainActivity extends Activity {
       requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE}, STORAGE_PERMISSION_REQUEST);
       return;
     }
-    progress.setMax(photos.size() + notices.size()); progress.setProgress(0); progress.setVisibility(View.VISIBLE);
+    progress.setMax(photos.size() + videos.size() + notices.size()); progress.setProgress(0); progress.setVisibility(View.VISIBLE);
     downloadButton.setEnabled(false);
     networkIo.execute(() -> {
       int saved = 0;
+      int videoSaved = 0;
       int noticeSaved = 0;
       for (int i = 0; i < photos.size(); i++) {
         Bitmap bitmap = null;
@@ -690,6 +711,16 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         } finally { if (bitmap != null && !bitmap.isRecycled()) bitmap.recycle(); }
         int done = i + 1;
+        runOnUiThread(() -> progress.setProgress(done));
+      }
+      for (int i = 0; i < videos.size(); i++) {
+        Video video = videos.get(i);
+        try {
+          String date = normalizedDate(video.date, targetYear);
+          writeVideoToGallery(video, date, videoRelativeFolder(date, folderMode));
+          videoSaved++;
+        } catch (Exception ignored) {}
+        int done = photos.size() + i + 1;
         runOnUiThread(() -> progress.setProgress(done));
       }
       LinkedHashMap<String, ArrayList<Notice>> noticesByDate = new LinkedHashMap<>();
@@ -706,15 +737,15 @@ public class MainActivity extends Activity {
           noticeSaved += entry.getValue().size();
         } catch (Exception ignored) {}
         noticeProgress += entry.getValue().size();
-        int done = photos.size() + noticeProgress;
+        int done = photos.size() + videos.size() + noticeProgress;
         runOnUiThread(() -> progress.setProgress(done));
       }
       int finalSaved = saved;
+      int finalVideoSaved = videoSaved;
       int finalNoticeSaved = noticeSaved;
-      String root = "Pictures/KidsNote/" + targetYear;
       runOnUiThread(() -> {
         progress.setVisibility(View.GONE); downloadButton.setEnabled(true);
-        Toast.makeText(this, root + "에 사진 " + finalSaved + "장 · 알림장 " + finalNoticeSaved + "개 저장됨", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, "사진 " + finalSaved + "장 · 영상 " + finalVideoSaved + "개 · 알림장 " + finalNoticeSaved + "개 저장됨", Toast.LENGTH_LONG).show();
         if (savedTabContent.getVisibility() == View.VISIBLE) loadSavedPhotos();
       });
     });
@@ -741,6 +772,50 @@ public class MainActivity extends Activity {
       }
       MediaScannerConnection.scanFile(this, new String[]{target.getAbsolutePath()}, new String[]{"image/jpeg"}, null);
     }
+  }
+
+  private void writeVideoToGallery(Video video, String date, String relativeFolder) throws Exception {
+    HttpURLConnection connection = connection(video.url);
+    connection.setReadTimeout(10 * 60 * 1000);
+    connection.setRequestProperty("Accept", "video/mp4,video/*;q=0.9,*/*;q=0.5");
+    int code = connection.getResponseCode();
+    if (code < 200 || code >= 300) throw new IOException("영상 응답 " + code);
+    String mimeType = connection.getContentType() == null ? "video/mp4" : connection.getContentType().split(";")[0];
+    if (!mimeType.toLowerCase(Locale.US).startsWith("video/")) throw new IOException("영상 형식이 아닙니다.");
+    String extension = mimeType.contains("quicktime") ? ".mov" : mimeType.contains("webm") ? ".webm" : ".mp4";
+    String dateToken = date.replace("-", "");
+    String fileName = "kidsnote_" + dateToken + "_video_" + Integer.toHexString(video.url.hashCode()) + extension;
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+      ContentValues values = new ContentValues();
+      values.put(MediaStore.Video.Media.DISPLAY_NAME, fileName);
+      values.put(MediaStore.Video.Media.MIME_TYPE, mimeType);
+      values.put(MediaStore.Video.Media.RELATIVE_PATH, relativeFolder);
+      values.put(MediaStore.Video.Media.IS_PENDING, 1);
+      Uri uri = getContentResolver().insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values);
+      if (uri == null) throw new IOException("영상 저장 위치를 만들 수 없습니다.");
+      try (InputStream in = connection.getInputStream(); OutputStream out = getContentResolver().openOutputStream(uri)) {
+        if (out == null) throw new IOException("영상 저장 실패");
+        copyStream(in, out);
+      } catch (Exception error) {
+        getContentResolver().delete(uri, null, null);
+        throw error;
+      }
+      ContentValues completed = new ContentValues();
+      completed.put(MediaStore.Video.Media.IS_PENDING, 0);
+      getContentResolver().update(uri, completed, null, null);
+    } else {
+      File directory = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
+          relativeFolder.replaceFirst("^Movies/", ""));
+      if (!directory.exists() && !directory.mkdirs()) throw new IOException("영상 폴더를 만들 수 없습니다.");
+      File target = new File(directory, fileName);
+      try (InputStream in = connection.getInputStream(); OutputStream out = new FileOutputStream(target)) { copyStream(in, out); }
+      MediaScannerConnection.scanFile(this, new String[]{target.getAbsolutePath()}, new String[]{mimeType}, null);
+    }
+  }
+
+  private static void copyStream(InputStream in, OutputStream out) throws IOException {
+    byte[] buffer = new byte[64 * 1024];
+    for (int read; (read = in.read(buffer)) >= 0;) out.write(buffer, 0, read);
   }
 
   private void writeTextFile(String fileName, String relativeFolder, String text) throws IOException {
@@ -795,6 +870,10 @@ public class MainActivity extends Activity {
     return folderMode == FOLDER_BY_DAY ? path + "/" + parts[2] + "일" : path;
   }
 
+  private static String videoRelativeFolder(String date, int folderMode) {
+    return relativeFolder(date, folderMode).replaceFirst("^Pictures/", "Movies/");
+  }
+
   private static String buildNoticeText(String date, List<Notice> dayNotices) {
     StringBuilder text = new StringBuilder();
     text.append("키즈노트 알림장\n날짜: ").append(date).append("\n");
@@ -841,7 +920,7 @@ public class MainActivity extends Activity {
   }
 
   private void chooseBackupFoldering() {
-    if (photos.isEmpty() && notices.isEmpty()) return;
+    if (photos.isEmpty() && videos.isEmpty() && notices.isEmpty()) return;
     int savedMode = getPreferences(MODE_PRIVATE).getInt("backup_folder_mode", FOLDER_BY_DAY);
     final int[] selected = {savedMode};
     new AlertDialog.Builder(this)
@@ -862,8 +941,9 @@ public class MainActivity extends Activity {
         : "Pictures/KidsNote/" + selectedYear() + "/08";
     new AlertDialog.Builder(this)
         .setTitle(selectedYear() + "년 자료를 저장할까요?")
-        .setMessage("사진 " + photos.size() + "장과 알림장 " + notices.size() + "개를 저장합니다.\n\n예시: " + example
-            + (folderMode == FOLDER_BY_DAY ? "\n해당 날짜 폴더에 사진과 알림장.txt가 함께 들어갑니다." : "\n월 폴더에 사진과 날짜별 알림장 텍스트가 들어갑니다."))
+        .setMessage("사진 " + photos.size() + "장, 영상 " + videos.size() + "개와 알림장 " + notices.size() + "개를 저장합니다.\n\n사진·알림장: " + example
+            + "\n영상: " + example.replace("Pictures/", "Movies/")
+            + (folderMode == FOLDER_BY_DAY ? "\n날짜별 폴더에 자료가 함께 정리됩니다." : "\n월별 폴더에 자료가 정리됩니다."))
         .setNegativeButton("취소", null)
         .setPositiveButton("저장", (dialog, which) -> saveAll(folderMode))
         .show();
@@ -1193,6 +1273,14 @@ public class MainActivity extends Activity {
       this.url = url;
       this.thumbnailUrl = thumbnailUrl;
       this.date = date == null ? "" : date;
+    }
+  }
+  private static class Video {
+    final String url, date, originalFileName;
+    Video(String url, String date, String originalFileName) {
+      this.url = url;
+      this.date = date == null ? "" : date;
+      this.originalFileName = originalFileName == null ? "" : originalFileName;
     }
   }
   private static class Notice {

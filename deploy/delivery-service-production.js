@@ -2,10 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const archiver = require('archiver');
-const encryptedZip = require('archiver-zip-encrypted');
 const nodemailer = require('nodemailer');
-
-archiver.registerFormat('zip-encrypted', encryptedZip);
 
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -210,7 +207,6 @@ function startDeliveryService(app, options) {
 
   async function makeZip(job, filesDir) {
     const zipPath = path.join(jobsDir, job.id, `kidsnote-${job.year || 'all'}.zip`);
-    job.zipPassword = `KN-${crypto.randomBytes(9).toString('base64url').toUpperCase()}`;
 
     let sevenZipBin = '';
     const possiblePaths = [
@@ -229,7 +225,7 @@ function startDeliveryService(app, options) {
       const { execFile } = require('child_process');
       await new Promise((resolve, reject) => {
         execFile(sevenZipBin, [
-          'a', '-tzip', `-p${job.zipPassword}`, '-mem=AES256', '-mx=0', '-mmt=on', zipPath, '*'
+          'a', '-tzip', '-mx=0', '-mmt=on', zipPath, '*'
         ], { cwd: filesDir }, (err, stdout, stderr) => {
           if (err) return reject(new Error(`7-Zip 압축 실패: ${stderr || err.message}`));
           resolve();
@@ -240,9 +236,7 @@ function startDeliveryService(app, options) {
 
     await new Promise((resolve, reject) => {
       const output = fs.createWriteStream(zipPath, { mode: 0o600 });
-      const archive = archiver.create('zip-encrypted', {
-        zlib: { level: 0 }, encryptionMethod: 'aes256', password: job.zipPassword
-      });
+      const archive = archiver.create('zip', { zlib: { level: 0 } });
       output.on('close', resolve); output.on('error', reject); archive.on('error', reject);
       archive.pipe(output); archive.directory(filesDir, false); archive.finalize();
     });
@@ -257,14 +251,11 @@ function startDeliveryService(app, options) {
     const noticeCount = Number(job.result?.noticeCount) || 0;
     const noticeText = noticeCount ? `\n알림장: ${noticeCount}개` : '';
     const noticeHtml = noticeCount ? `<br>알림장 <b>${noticeCount}개</b>` : '';
-    const passwordText = job.zipPassword ? `\n압축 비밀번호: ${job.zipPassword}\n` : '';
-    const passwordHtml = job.zipPassword
-      ? `<div style="margin:22px 0;padding:15px;border-radius:10px;background:#f3f8f5"><span style="color:#718078;font-size:13px">압축 비밀번호</span><br><b style="font-size:20px;letter-spacing:.04em">${job.zipPassword}</b></div>` : '';
     await transporter.sendMail({
       from: `키즈노트 사진 전달 <${user}>`, to: job.email,
       subject: `[키즈노트] ${job.year || '전체 기간'} 자료 다운로드가 준비되었습니다`,
-      text: `요청하신 키즈노트 자료가 준비되었습니다.\n사진: ${job.result.count}장${noticeText}\n${passwordText}\n다운로드: ${downloadUrl}\n파일 즉시 삭제: ${deleteUrl}\n\n링크는 7일 후 자동 만료됩니다. 삭제 버튼을 누르면 즉시 내려받을 수 없게 됩니다.`,
-      html: `<div style="font-family:Arial,sans-serif;line-height:1.7;color:#17211b"><h2>키즈노트 자료가 준비되었습니다</h2><p><b>${job.year || '전체 기간'}</b><br>사진 <b>${job.result.count}장</b>${noticeHtml}</p>${passwordHtml}<p><a href="${downloadUrl}" style="display:inline-block;margin:4px;padding:13px 22px;background:#3e8b63;color:white;text-decoration:none;border-radius:9px;font-weight:700">다운로드</a><a href="${deleteUrl}" style="display:inline-block;margin:4px;padding:12px 21px;border:1px solid #c94b4b;color:#b63838;text-decoration:none;border-radius:9px;font-weight:700">파일 삭제</a></p><p style="color:#718078;font-size:13px">링크는 7일 후 자동 만료됩니다. 삭제 버튼은 확인 화면을 거친 뒤 공유 ZIP을 즉시 삭제합니다.<br>AES-256 압축이며 기본 압축 앱에서 열리지 않으면 7-Zip 또는 WinZip을 사용해 주세요.</p></div>`
+      text: `요청하신 키즈노트 자료가 준비되었습니다.\n사진: ${job.result.count}장${noticeText}\n\n다운로드: ${downloadUrl}\n파일 즉시 삭제: ${deleteUrl}\n\n링크는 7일 후 자동 만료됩니다. 삭제 버튼을 누르면 즉시 내려받을 수 없게 됩니다.\n다운로드 링크는 본인만 사용하고 다른 사람에게 전달하지 마세요.`,
+      html: `<div style="font-family:Arial,sans-serif;line-height:1.7;color:#17211b"><h2>키즈노트 자료가 준비되었습니다</h2><p><b>${job.year || '전체 기간'}</b><br>사진 <b>${job.result.count}장</b>${noticeHtml}</p><p><a href="${downloadUrl}" style="display:inline-block;margin:4px;padding:13px 22px;background:#3e8b63;color:white;text-decoration:none;border-radius:9px;font-weight:700">다운로드</a><a href="${deleteUrl}" style="display:inline-block;margin:4px;padding:12px 21px;border:1px solid #c94b4b;color:#b63838;text-decoration:none;border-radius:9px;font-weight:700">파일 삭제</a></p><p style="color:#718078;font-size:13px">링크는 7일 후 자동 만료됩니다. 삭제 버튼은 확인 화면을 거친 뒤 공유 ZIP을 즉시 삭제합니다.<br>다운로드 링크는 본인만 사용하고 다른 사람에게 전달하지 마세요.</p></div>`
     });
   }
 
@@ -406,7 +397,7 @@ function startDeliveryService(app, options) {
       if (error.code === 'JOB_CANCELLED') {
         const currentDir = path.join(jobsDir, job.id);
         if (fs.existsSync(currentDir)) fs.rmSync(currentDir, { recursive: true, force: true });
-        update(job, { status: 'cancelled', error: '', result: null, zipPath: '', zipPassword: '', downloadTokenHash: '', deleteTokenHash: '', expiresAt: null, progress: { ...job.progress, step: '관리자가 취소함' } });
+        update(job, { status: 'cancelled', error: '', result: null, zipPath: '', downloadTokenHash: '', deleteTokenHash: '', expiresAt: null, progress: { ...job.progress, step: '관리자가 취소함' } });
       } else {
         console.error('Delivery job failed:', job.id, error.message);
         update(job, { status: 'failed', error: error.message || '작업에 실패했습니다.', progress: { ...job.progress, step: '실패' } });
@@ -485,7 +476,7 @@ function startDeliveryService(app, options) {
     } catch (error) {
       if (error.code === 'JOB_CANCELLED') {
         if (fs.existsSync(jobDir)) fs.rmSync(jobDir, { recursive: true, force: true });
-        update(job, { status: 'cancelled', error: '', result: null, zipPath: '', zipPassword: '', downloadTokenHash: '', deleteTokenHash: '', expiresAt: null, progress: { ...job.progress, step: '관리자가 취소함' } });
+        update(job, { status: 'cancelled', error: '', result: null, zipPath: '', downloadTokenHash: '', deleteTokenHash: '', expiresAt: null, progress: { ...job.progress, step: '관리자가 취소함' } });
       } else {
         console.error('Delivery test failed:', job.id, error.message);
         update(job, { status: 'failed', error: error.message || '테스트에 실패했습니다.', progress: { ...job.progress, step: '실패' } });
@@ -664,7 +655,7 @@ function startDeliveryService(app, options) {
     if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
     job.result = { ...(job.result || {}), deletedAt: Date.now() };
     update(job, {
-      zipPath: '', zipPassword: '', downloadTokenHash: '', deleteTokenHash: '', expiresAt: null,
+      zipPath: '', downloadTokenHash: '', deleteTokenHash: '', expiresAt: null,
       result: job.result, progress: { ...(job.progress || {}), step: reason }
     });
   }
@@ -676,9 +667,8 @@ function startDeliveryService(app, options) {
     const count = Number(job.result?.count) || 0;
     const noticeCount = Number(job.result?.noticeCount) || 0;
     const size = job.result?.size ? `${(job.result.size / 1024 / 1024).toFixed(1)} MB` : '';
-    const password = job.zipPassword ? `<div class="password"><small>압축 비밀번호</small><b>${job.zipPassword}</b></div>` : '';
     res.setHeader('Cache-Control', 'private, no-store');
-    res.type('html').send(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>키즈노트 자료 다운로드</title><style>*{box-sizing:border-box}body{margin:0;background:#f3f8f5;color:#17211b;font:16px/1.6 system-ui,-apple-system,"Noto Sans KR",sans-serif}.card{width:min(480px,calc(100% - 28px));margin:10vh auto;padding:34px;background:#fff;border:1px solid #dbe7df;border-radius:24px;box-shadow:0 20px 60px #173c2512;text-align:center}.icon{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 20px;border-radius:20px;background:#eaf5ee;color:#347a55;font-size:30px}h1{margin:0 0 10px;font-size:27px}p{color:#6e7e74}.info,.password{margin:20px 0;padding:15px;border-radius:14px;background:#f6f9f7;color:#17211b}.password small,.password b{display:block}.password b{font-size:20px;letter-spacing:.04em}.button{display:block;padding:15px 20px;border-radius:13px;background:#347a55;color:#fff;text-decoration:none;font-weight:800}.help{font-size:13px}</style></head><body><main class="card"><div class="icon">↓</div><h1>자료 ZIP이 준비되었습니다</h1><p>아래 버튼을 눌러 기기에 저장하세요.</p><div class="info">사진 <b>${count}장</b>${noticeCount ? ` · 알림장 <b>${noticeCount}개</b>` : ''} · ${size}</div>${password}<a class="button" href="${fileUrl}" download>ZIP 다운로드</a><p class="help">다운로드한 파일은 기기의 ‘다운로드’ 폴더에서 확인할 수 있습니다.<br>링크는 7일 후 만료됩니다.</p></main></body></html>`);
+    res.type('html').send(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>키즈노트 자료 다운로드</title><style>*{box-sizing:border-box}body{margin:0;background:#f3f8f5;color:#17211b;font:16px/1.6 system-ui,-apple-system,"Noto Sans KR",sans-serif}.card{width:min(480px,calc(100% - 28px));margin:10vh auto;padding:34px;background:#fff;border:1px solid #dbe7df;border-radius:24px;box-shadow:0 20px 60px #173c2512;text-align:center}.icon{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 20px;border-radius:20px;background:#eaf5ee;color:#347a55;font-size:30px}h1{margin:0 0 10px;font-size:27px}p{color:#6e7e74}.info{margin:20px 0;padding:15px;border-radius:14px;background:#f6f9f7;color:#17211b}.button{display:block;padding:15px 20px;border-radius:13px;background:#347a55;color:#fff;text-decoration:none;font-weight:800}.help{font-size:13px}</style></head><body><main class="card"><div class="icon">↓</div><h1>자료 ZIP이 준비되었습니다</h1><p>아래 버튼을 눌러 기기에 저장하세요.</p><div class="info">사진 <b>${count}장</b>${noticeCount ? ` · 알림장 <b>${noticeCount}개</b>` : ''} · ${size}</div><a class="button" href="${fileUrl}" download>ZIP 다운로드</a><p class="help">다운로드한 파일은 기기의 ‘다운로드’ 폴더에서 확인할 수 있습니다.<br>링크는 7일 후 만료됩니다.</p></main></body></html>`);
   };
 
   const handleDownload = (req, res) => {

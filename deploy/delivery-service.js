@@ -2,10 +2,9 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const archiver = require('archiver');
-const encryptedZip = require('archiver-zip-encrypted');
 const nodemailer = require('nodemailer');
-
-archiver.registerFormat('zip-encrypted', encryptedZip);
+const { Readable } = require('stream');
+const { pipeline } = require('stream/promises');
 
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -157,6 +156,57 @@ function startDeliveryService(app, options) {
     return { name: base, size: buffer.length };
   }
 
+  function videoFromItem(item) {
+    const video = item?.attached_video;
+    if (!video || typeof video !== 'object') return null;
+    const sourceUrl = ['high', 'low', 'url', 'file', 'original']
+      .map(key => String(video[key] || '').trim())
+      .find(value => /^https?:\/\//i.test(value) && /\.(?:mp4|mov|m4v|webm|3gp)(?:$|[?#])/i.test(value));
+    if (!sourceUrl) return null;
+    return { sourceUrl, originalFileName: String(video.original_file_name || '').trim() };
+  }
+
+  async function downloadVideo(sourceUrl, session, meta, outputDir, usedNames, folderMode = 'day') {
+    const response = await fetch(sourceUrl, {
+      headers: {
+        Cookie: session.cookie,
+        Accept: 'video/mp4,video/*;q=0.9,*/*;q=0.5',
+        Referer: meta.sourcePage || 'https://www.kidsnote.com/service/report',
+        ...(meta.enrollment || session.enrollment ? { 'X-ENROLLMENT': meta.enrollment || session.enrollment } : {}),
+        'User-Agent': 'KidsNote-Delivery-Service/1.0'
+      },
+      redirect: 'follow', signal: AbortSignal.timeout(10 * 60 * 1000)
+    });
+    if (!response.ok) throw new Error(`영상 응답 오류 ${response.status}`);
+    const mimeType = String(response.headers.get('content-type') || '').toLowerCase();
+    if (!mimeType.startsWith('video/') && !/\.(?:mp4|mov|m4v|webm|3gp)(?:$|[?#])/i.test(sourceUrl)) {
+      throw new Error('영상 형식이 아닙니다.');
+    }
+    const extensionFromName = path.extname(meta.originalFileName || '').toLowerCase();
+    const extension = ['.mp4', '.mov', '.m4v', '.webm', '.3gp'].includes(extensionFromName)
+      ? extensionFromName
+      : mimeType.includes('quicktime') ? '.mov' : mimeType.includes('webm') ? '.webm' : '.mp4';
+    let base = `${String(meta.sourceDate || '날짜없음').slice(0, 10)}_video_${crypto.createHash('sha1').update(sourceUrl).digest('hex').slice(0, 12)}${extension}`;
+    const nameKey = `${meta.childFolderName || ''}/${base}`;
+    const count = usedNames.get(nameKey) || 0;
+    usedNames.set(nameKey, count + 1);
+    if (count) base = `${path.basename(base, extension)}_${count + 1}${extension}`;
+    const relativeDir = datedRelativeDir(meta.sourceDate, folderMode, meta.childFolderName);
+    const targetDir = path.join(outputDir, relativeDir);
+    fs.mkdirSync(targetDir, { recursive: true, mode: 0o700 });
+    const targetPath = path.join(targetDir, base);
+    try {
+      if (!response.body) throw new Error('영상 응답 본문이 없습니다.');
+      await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(targetPath, { mode: 0o600 }));
+      const size = fs.statSync(targetPath).size;
+      if (size < 1024) throw new Error('영상 파일이 비어 있습니다.');
+      return { name: base, size };
+    } catch (error) {
+      if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath);
+      throw error;
+    }
+  }
+
   function decodeHtmlEntities(value) {
     const named = { nbsp: ' ', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
     return value.replace(/&(#x[0-9a-f]+|#\d+|nbsp|amp|lt|gt|quot|apos);/gi, (match, entity) => {
@@ -219,7 +269,6 @@ function startDeliveryService(app, options) {
 
   async function makeZip(job, filesDir) {
     const zipPath = path.join(jobsDir, job.id, `kidsnote-${job.sampleMode ? 'sample-' : ''}${job.year || 'all'}.zip`);
-    job.zipPassword = `KN-${crypto.randomBytes(9).toString('base64url').toUpperCase()}`;
 
     let sevenZipBin = '';
     const possiblePaths = [
@@ -238,7 +287,7 @@ function startDeliveryService(app, options) {
       const { execFile } = require('child_process');
       await new Promise((resolve, reject) => {
         execFile(sevenZipBin, [
-          'a', '-tzip', `-p${job.zipPassword}`, '-mem=AES256', '-mx=0', '-mmt=on', zipPath, '*'
+          'a', '-tzip', '-mx=0', '-mmt=on', zipPath, '*'
         ], { cwd: filesDir }, (err, stdout, stderr) => {
           if (err) return reject(new Error(`7-Zip 압축 실패: ${stderr || err.message}`));
           resolve();
@@ -249,9 +298,7 @@ function startDeliveryService(app, options) {
 
     await new Promise((resolve, reject) => {
       const output = fs.createWriteStream(zipPath, { mode: 0o600 });
-      const archive = archiver.create('zip-encrypted', {
-        zlib: { level: 0 }, encryptionMethod: 'aes256', password: job.zipPassword
-      });
+      const archive = archiver.create('zip', { zlib: { level: 0 } });
       output.on('close', resolve); output.on('error', reject); archive.on('error', reject);
       archive.pipe(output); archive.directory(filesDir, false); archive.finalize();
     });
@@ -264,18 +311,18 @@ function startDeliveryService(app, options) {
     if (!user || !pass) throw new Error('이메일 발송 설정이 완료되지 않았습니다.');
     const transporter = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user, pass } });
     const noticeCount = Number(job.result?.noticeCount) || 0;
+    const videoCount = Number(job.result?.videoCount) || 0;
     const noticeText = noticeCount ? `\n알림장: ${noticeCount}개` : '';
     const noticeHtml = noticeCount ? `<br>알림장 <b>${noticeCount}개</b>` : '';
-    const sampleText = job.sampleMode ? `\n샘플 기준: 전체 사진 ${job.result.sourceCount || 0}장 중 ${job.result.count}장` : '';
-    const sampleHtml = job.sampleMode ? `<div style="margin:14px 0;padding:12px;border-radius:10px;background:#fff7e6;color:#805f18"><b>1/10 샘플 테스트</b><br>전체 사진 ${job.result.sourceCount || 0}장 중 ${job.result.count}장을 추출했습니다.</div>` : '';
-    const passwordText = job.zipPassword ? `\n압축 비밀번호: ${job.zipPassword}\n` : '';
-    const passwordHtml = job.zipPassword
-      ? `<div style="margin:22px 0;padding:15px;border-radius:10px;background:#f3f8f5"><span style="color:#718078;font-size:13px">압축 비밀번호</span><br><b style="font-size:20px;letter-spacing:.04em">${job.zipPassword}</b></div>` : '';
+    const videoText = videoCount ? `\n영상: ${videoCount}개` : '';
+    const videoHtml = videoCount ? `<br>영상 <b>${videoCount}개</b>` : '';
+    const sampleText = job.sampleMode ? `\n샘플 기준: 전체 사진 ${job.result.sourceCount || 0}장 중 ${job.result.count}장 · 전체 영상 ${job.result.sourceVideoCount || 0}개 중 ${videoCount}개` : '';
+    const sampleHtml = job.sampleMode ? `<div style="margin:14px 0;padding:12px;border-radius:10px;background:#fff7e6;color:#805f18"><b>1/10 샘플 테스트</b><br>전체 사진 ${job.result.sourceCount || 0}장 중 ${job.result.count}장 · 전체 영상 ${job.result.sourceVideoCount || 0}개 중 ${videoCount}개를 추출했습니다.</div>` : '';
     await transporter.sendMail({
       from: `키즈노트 사진 전달 <${user}>`, to: job.email,
       subject: `[키즈노트${job.sampleMode ? ' 샘플 테스트' : ''}] ${job.year || '전체 기간'} 자료 다운로드가 준비되었습니다`,
-      text: `요청하신 키즈노트 자료가 준비되었습니다.\n사진: ${job.result.count}장${noticeText}${sampleText}\n${passwordText}\n다운로드: ${downloadUrl}\n파일 즉시 삭제: ${deleteUrl}\n\n링크는 7일 후 자동 만료됩니다. 삭제 버튼을 누르면 즉시 내려받을 수 없게 됩니다.`,
-      html: `<div style="font-family:Arial,sans-serif;line-height:1.7;color:#17211b"><h2>키즈노트 자료가 준비되었습니다</h2><p><b>${job.year || '전체 기간'}</b><br>사진 <b>${job.result.count}장</b>${noticeHtml}</p>${sampleHtml}${passwordHtml}<p><a href="${downloadUrl}" style="display:inline-block;margin:4px;padding:13px 22px;background:#3e8b63;color:white;text-decoration:none;border-radius:9px;font-weight:700">다운로드</a><a href="${deleteUrl}" style="display:inline-block;margin:4px;padding:12px 21px;border:1px solid #c94b4b;color:#b63838;text-decoration:none;border-radius:9px;font-weight:700">파일 삭제</a></p><p style="color:#718078;font-size:13px">링크는 7일 후 자동 만료됩니다. 삭제 버튼은 확인 화면을 거친 뒤 공유 ZIP을 즉시 삭제합니다.<br>AES-256 압축이며 기본 압축 앱에서 열리지 않으면 7-Zip 또는 WinZip을 사용해 주세요.</p></div>`
+      text: `요청하신 키즈노트 자료가 준비되었습니다.\n사진: ${job.result.count}장${videoText}${noticeText}${sampleText}\n\n다운로드: ${downloadUrl}\n파일 즉시 삭제: ${deleteUrl}\n\n링크는 7일 후 자동 만료됩니다. 삭제 버튼을 누르면 즉시 내려받을 수 없게 됩니다.\n다운로드 링크는 본인만 사용하고 다른 사람에게 전달하지 마세요.`,
+      html: `<div style="font-family:Arial,sans-serif;line-height:1.7;color:#17211b"><h2>키즈노트 자료가 준비되었습니다</h2><p><b>${job.year || '전체 기간'}</b><br>사진 <b>${job.result.count}장</b>${videoHtml}${noticeHtml}</p>${sampleHtml}<p><a href="${downloadUrl}" style="display:inline-block;margin:4px;padding:13px 22px;background:#3e8b63;color:white;text-decoration:none;border-radius:9px;font-weight:700">다운로드</a><a href="${deleteUrl}" style="display:inline-block;margin:4px;padding:12px 21px;border:1px solid #c94b4b;color:#b63838;text-decoration:none;border-radius:9px;font-weight:700">파일 삭제</a></p><p style="color:#718078;font-size:13px">링크는 7일 후 자동 만료됩니다. 삭제 버튼은 확인 화면을 거친 뒤 공유 ZIP을 즉시 삭제합니다.<br>다운로드 링크는 본인만 사용하고 다른 사람에게 전달하지 마세요.</p></div>`
     });
   }
 
@@ -288,11 +335,22 @@ function startDeliveryService(app, options) {
     return { downloadToken, deleteToken };
   }
 
+  function publicFileUrl(pathname) {
+    const configured = String(process.env.PUBLIC_BASE_URL || '').trim();
+    if (!configured) return `/kidsnote-files${pathname}`;
+    let origin;
+    try {
+      origin = new URL(configured).origin;
+    } catch {
+      throw new Error('PUBLIC_BASE_URL 설정이 올바른 URL이 아닙니다.');
+    }
+    return `${origin}/kidsnote-files${pathname}`;
+  }
+
   function shareUrls(job, tokens) {
-    const baseUrl = String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
     return {
-      downloadUrl: `${baseUrl}/kidsnote-files/delivery/open/${job.id}/${tokens.downloadToken}`,
-      deleteUrl: `${baseUrl}/kidsnote-files/delivery/delete/${job.id}/${tokens.deleteToken}`
+      downloadUrl: publicFileUrl(`/delivery/open/${encodeURIComponent(job.id)}/${encodeURIComponent(tokens.downloadToken)}`),
+      deleteUrl: publicFileUrl(`/delivery/delete/${encodeURIComponent(job.id)}/${encodeURIComponent(tokens.deleteToken)}`)
     };
   }
 
@@ -301,12 +359,12 @@ function startDeliveryService(app, options) {
     const filesDir = path.join(jobDir, 'files');
     fs.mkdirSync(filesDir, { recursive: true, mode: 0o700 });
     try {
-      update(job, { status: 'logging-in', progress: { step: '키즈노트 로그인 중', found: 0, downloaded: 0, failed: 0, breakdown: {} } });
+      update(job, { status: 'logging-in', progress: { step: '키즈노트 로그인 중', found: 0, downloaded: 0, failed: 0, videoFound: 0, videoDownloaded: 0, videoFailed: 0, breakdown: {} } });
       const session = await options.login(username, password);
       password = ''; username = '';
       ensureNotCancelled(job);
       const sampleLabel = job.sampleMode ? ' · 1/10 샘플' : '';
-      update(job, { status: 'collecting', progress: { ...job.progress, step: (job.includeNotices ? '사진과 알림장 목록 수집 중' : '사진 목록 수집 중') + sampleLabel } });
+      update(job, { status: 'collecting', progress: { ...job.progress, step: (job.includeNotices ? '사진·영상·알림장 목록 수집 중' : '사진·영상 목록 수집 중') + sampleLabel } });
 
       const rawChildren = Array.isArray(session.children) && session.children.length
         ? session.children
@@ -322,6 +380,7 @@ function startDeliveryService(app, options) {
       });
 
       const candidates = new Map();
+      const videoCandidates = new Map();
       const noticeCandidates = [];
       for (const child of children) {
         ensureNotCancelled(job);
@@ -352,16 +411,35 @@ function startDeliveryService(app, options) {
                 enrollment: child.enrollment || session.enrollment
               });
             }
+            const video = videoFromItem(item);
+            if (video) {
+              videoCandidates.set(video.sourceUrl, {
+                sourceDate: date,
+                sourceType: collection.type,
+                sourcePage: `https://www.kidsnote.com/service/${collection.type}`,
+                childFolderName,
+                childId: child.id,
+                enrollment: child.enrollment || session.enrollment,
+                originalFileName: video.originalFileName
+              });
+            }
           }
-          update(job, { progress: { ...job.progress, found: job.sampleMode && candidates.size ? Math.max(1, Math.ceil(candidates.size / 10)) : candidates.size, sourceFound: candidates.size } });
+          update(job, { progress: { ...job.progress,
+            found: job.sampleMode && candidates.size ? Math.max(1, Math.ceil(candidates.size / 10)) : candidates.size,
+            sourceFound: candidates.size,
+            videoFound: job.sampleMode && videoCandidates.size ? Math.max(1, Math.ceil(videoCandidates.size / 10)) : videoCandidates.size,
+            sourceVideoFound: videoCandidates.size
+          } });
         }
       }
-      if (!candidates.size && !noticeCandidates.length) throw new Error('선택한 기간에 저장할 사진이나 알림장이 없습니다.');
+      if (!candidates.size && !videoCandidates.size && !noticeCandidates.length) throw new Error('선택한 기간에 저장할 사진, 영상 또는 알림장이 없습니다.');
       const sourcePhotoCount = candidates.size;
+      const sourceVideoCount = videoCandidates.size;
       const sourceNoticeCount = noticeCandidates.length;
       const selectedCandidates = job.sampleMode ? sampleOneTenth([...candidates.entries()]) : [...candidates.entries()];
+      const selectedVideos = job.sampleMode ? sampleOneTenth([...videoCandidates.entries()]) : [...videoCandidates.entries()];
       const selectedNotices = job.sampleMode ? sampleOneTenth(noticeCandidates) : noticeCandidates;
-      update(job, { status: 'downloading', progress: { ...job.progress, step: job.sampleMode ? '1/10 샘플 사진 다운로드 중' : '사진 다운로드 중', found: selectedCandidates.length, sourceFound: sourcePhotoCount } });
+      update(job, { status: 'downloading', progress: { ...job.progress, step: job.sampleMode ? '1/10 샘플 사진 다운로드 중' : '사진 다운로드 중', found: selectedCandidates.length, sourceFound: sourcePhotoCount, videoFound: selectedVideos.length, sourceVideoFound: sourceVideoCount } });
       const usedNames = new Map(); let totalSize = 0;
       const CONCURRENCY = 16;
       let currentIndex = 0;
@@ -390,7 +468,29 @@ function startDeliveryService(app, options) {
       }
 
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, selectedCandidates.length) }, () => worker()));
-      if (selectedCandidates.length && !job.progress.downloaded && !selectedNotices.length) throw new Error('사진을 다운로드하지 못했습니다.');
+      if (selectedVideos.length) {
+        update(job, { progress: { ...job.progress, step: job.sampleMode ? '1/10 샘플 영상 다운로드 중' : '영상 다운로드 중' } });
+        let videoIndex = 0;
+        async function videoWorker() {
+          while (videoIndex < selectedVideos.length) {
+            ensureNotCancelled(job);
+            const [sourceUrl, meta] = selectedVideos[videoIndex++];
+            try {
+              const file = await downloadVideo(sourceUrl, session, meta, filesDir, usedNames, job.folderMode);
+              totalSize += file.size;
+              job.progress.videoDownloaded++;
+            } catch (error) {
+              job.progress.videoFailed++;
+              console.warn('Delivery video failed:', job.id, error.message);
+            }
+            update(job, { progress: { ...job.progress } });
+          }
+        }
+        await Promise.all(Array.from({ length: Math.min(3, selectedVideos.length) }, () => videoWorker()));
+      }
+      if ((selectedCandidates.length || selectedVideos.length) && !job.progress.downloaded && !job.progress.videoDownloaded && !selectedNotices.length) {
+        throw new Error('사진과 영상을 다운로드하지 못했습니다.');
+      }
       const noticeCount = job.includeNotices ? writeNoticeFiles(selectedNotices, filesDir, job.folderMode) : 0;
       ensureNotCancelled(job);
       update(job, { status: 'compressing', progress: { ...job.progress, step: 'ZIP 압축 중' } });
@@ -398,7 +498,7 @@ function startDeliveryService(app, options) {
       fs.rmSync(filesDir, { recursive: true, force: true });
       const tokens = issueShareTokens(job);
       job.zipPath = zipPath;
-      job.result = { count: job.progress.downloaded, noticeCount, sourceCount: sourcePhotoCount, sourceNoticeCount, sampleMode: job.sampleMode === true, failed: job.progress.failed, size: fs.statSync(zipPath).size, emailSent: false, breakdown: job.progress.breakdown };
+      job.result = { count: job.progress.downloaded, videoCount: job.progress.videoDownloaded, noticeCount, sourceCount: sourcePhotoCount, sourceVideoCount, sourceNoticeCount, sampleMode: job.sampleMode === true, failed: job.progress.failed, videoFailed: job.progress.videoFailed, size: fs.statSync(zipPath).size, emailSent: false, breakdown: job.progress.breakdown };
       update(job, { status: 'emailing', progress: { ...job.progress, step: '이메일 발송 중' }, result: job.result, expiresAt: job.expiresAt });
       ensureNotCancelled(job);
       const urls = shareUrls(job, tokens);
@@ -410,7 +510,7 @@ function startDeliveryService(app, options) {
       if (error.code === 'JOB_CANCELLED') {
         const currentDir = path.join(jobsDir, job.id);
         if (fs.existsSync(currentDir)) fs.rmSync(currentDir, { recursive: true, force: true });
-        update(job, { status: 'cancelled', error: '', result: null, zipPath: '', zipPassword: '', downloadTokenHash: '', deleteTokenHash: '', expiresAt: null, progress: { ...job.progress, step: '관리자가 취소함' } });
+        update(job, { status: 'cancelled', error: '', result: null, zipPath: '', downloadTokenHash: '', deleteTokenHash: '', expiresAt: null, progress: { ...job.progress, step: '관리자가 취소함' } });
       } else {
         console.error('Delivery job failed:', job.id, error.message);
         update(job, { status: 'failed', error: error.message || '작업에 실패했습니다.', progress: { ...job.progress, step: '실패' } });
@@ -489,7 +589,7 @@ function startDeliveryService(app, options) {
     } catch (error) {
       if (error.code === 'JOB_CANCELLED') {
         if (fs.existsSync(jobDir)) fs.rmSync(jobDir, { recursive: true, force: true });
-        update(job, { status: 'cancelled', error: '', result: null, zipPath: '', zipPassword: '', downloadTokenHash: '', deleteTokenHash: '', expiresAt: null, progress: { ...job.progress, step: '관리자가 취소함' } });
+        update(job, { status: 'cancelled', error: '', result: null, zipPath: '', downloadTokenHash: '', deleteTokenHash: '', expiresAt: null, progress: { ...job.progress, step: '관리자가 취소함' } });
       } else {
         console.error('Delivery test failed:', job.id, error.message);
         update(job, { status: 'failed', error: error.message || '테스트에 실패했습니다.', progress: { ...job.progress, step: '실패' } });
@@ -694,7 +794,7 @@ function startDeliveryService(app, options) {
     if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
     job.result = { ...(job.result || {}), deletedAt: Date.now() };
     update(job, {
-      zipPath: '', zipPassword: '', downloadTokenHash: '', deleteTokenHash: '', expiresAt: null,
+      zipPath: '', downloadTokenHash: '', deleteTokenHash: '', expiresAt: null,
       result: job.result, progress: { ...(job.progress || {}), step: reason }
     });
   }
@@ -702,15 +802,14 @@ function startDeliveryService(app, options) {
   app.get('/delivery/open/:jobId/:token', (req, res) => {
     const job = findDownload(req);
     if (!job) return res.status(404).send('다운로드 링크가 만료되었거나 올바르지 않습니다.');
-    const publicBase = String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
-    const fileUrl = `${publicBase}/kidsnote-files/delivery/download/${encodeURIComponent(req.params.jobId)}/${encodeURIComponent(req.params.token)}`;
+    const fileUrl = publicFileUrl(`/delivery/download/${encodeURIComponent(req.params.jobId)}/${encodeURIComponent(req.params.token)}`);
     const count = Number(job.result?.count) || 0;
+    const videoCount = Number(job.result?.videoCount) || 0;
     const noticeCount = Number(job.result?.noticeCount) || 0;
     const size = job.result?.size ? `${(job.result.size / 1024 / 1024).toFixed(1)} MB` : '';
-    const sampleInfo = job.sampleMode ? `<div class="sample"><b>1/10 샘플 테스트</b><br>전체 사진 ${job.result?.sourceCount || 0}장 중 ${count}장을 추출했습니다.</div>` : '';
-    const password = job.zipPassword ? `<div class="password"><small>압축 비밀번호</small><b>${job.zipPassword}</b></div>` : '';
+    const sampleInfo = job.sampleMode ? `<div class="sample"><b>1/10 샘플 테스트</b><br>전체 사진 ${job.result?.sourceCount || 0}장 중 ${count}장 · 전체 영상 ${job.result?.sourceVideoCount || 0}개 중 ${videoCount}개를 추출했습니다.</div>` : '';
     res.setHeader('Cache-Control', 'private, no-store');
-    res.type('html').send(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>키즈노트 자료 다운로드</title><style>*{box-sizing:border-box}body{margin:0;background:#f3f8f5;color:#17211b;font:16px/1.6 system-ui,-apple-system,"Noto Sans KR",sans-serif}.card{width:min(480px,calc(100% - 28px));margin:10vh auto;padding:34px;background:#fff;border:1px solid #dbe7df;border-radius:24px;box-shadow:0 20px 60px #173c2512;text-align:center}.icon{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 20px;border-radius:20px;background:#eaf5ee;color:#347a55;font-size:30px}h1{margin:0 0 10px;font-size:27px}p{color:#6e7e74}.info,.password,.sample{margin:20px 0;padding:15px;border-radius:14px;background:#f6f9f7;color:#17211b}.sample{background:#fff7e6;color:#805f18}.password small,.password b{display:block}.password b{font-size:20px;letter-spacing:.04em}.button{display:block;padding:15px 20px;border-radius:13px;background:#347a55;color:#fff;text-decoration:none;font-weight:800}.help{font-size:13px}</style></head><body><main class="card"><div class="icon">↓</div><h1>자료 ZIP이 준비되었습니다</h1><p>아래 버튼을 눌러 기기에 저장하세요.</p><div class="info">사진 <b>${count}장</b>${noticeCount ? ` · 알림장 <b>${noticeCount}개</b>` : ''} · ${size}</div>${sampleInfo}${password}<a class="button" href="${fileUrl}" download>ZIP 다운로드</a><p class="help">다운로드한 파일은 기기의 ‘다운로드’ 폴더에서 확인할 수 있습니다.<br>링크는 7일 후 만료됩니다.</p></main></body></html>`);
+    res.type('html').send(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>키즈노트 자료 다운로드</title><style>*{box-sizing:border-box}body{margin:0;background:#f3f8f5;color:#17211b;font:16px/1.6 system-ui,-apple-system,"Noto Sans KR",sans-serif}.card{width:min(480px,calc(100% - 28px));margin:10vh auto;padding:34px;background:#fff;border:1px solid #dbe7df;border-radius:24px;box-shadow:0 20px 60px #173c2512;text-align:center}.icon{display:grid;place-items:center;width:64px;height:64px;margin:0 auto 20px;border-radius:20px;background:#eaf5ee;color:#347a55;font-size:30px}h1{margin:0 0 10px;font-size:27px}p{color:#6e7e74}.info,.sample{margin:20px 0;padding:15px;border-radius:14px;background:#f6f9f7;color:#17211b}.sample{background:#fff7e6;color:#805f18}.button{display:block;padding:15px 20px;border-radius:13px;background:#347a55;color:#fff;text-decoration:none;font-weight:800}.help{font-size:13px}</style></head><body><main class="card"><div class="icon">↓</div><h1>자료 ZIP이 준비되었습니다</h1><p>아래 버튼을 눌러 기기에 저장하세요.</p><div class="info">사진 <b>${count}장</b>${videoCount ? ` · 영상 <b>${videoCount}개</b>` : ''}${noticeCount ? ` · 알림장 <b>${noticeCount}개</b>` : ''} · ${size}</div>${sampleInfo}<a class="button" href="${fileUrl}" download>ZIP 다운로드</a><p class="help">다운로드한 파일은 기기의 ‘다운로드’ 폴더에서 확인할 수 있습니다.<br>링크는 7일 후 만료됩니다.</p></main></body></html>`);
   });
 
   app.get('/delivery/download/:jobId/:token', (req, res) => {
@@ -724,8 +823,7 @@ function startDeliveryService(app, options) {
   app.get('/delivery/delete/:jobId/:token', (req, res) => {
     const job = findDeletion(req);
     if (!job) return res.status(404).send('삭제 링크가 만료되었거나 파일이 이미 삭제되었습니다.');
-    const publicBase = String(process.env.PUBLIC_BASE_URL || '').replace(/\/$/, '');
-    const action = `${publicBase}/kidsnote-files/delivery/delete/${encodeURIComponent(req.params.jobId)}/${encodeURIComponent(req.params.token)}`;
+    const action = publicFileUrl(`/delivery/delete/${encodeURIComponent(req.params.jobId)}/${encodeURIComponent(req.params.token)}`);
     res.setHeader('Cache-Control', 'private, no-store');
     res.type('html').send(`<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>공유 파일 삭제</title><style>*{box-sizing:border-box}body{margin:0;background:#f7f8f7;color:#17211b;font:16px/1.6 system-ui,-apple-system,"Noto Sans KR",sans-serif}.card{width:min(460px,calc(100% - 28px));margin:12vh auto;padding:34px;border:1px solid #eadede;border-radius:22px;background:#fff;text-align:center;box-shadow:0 18px 50px #173c250a}h1{margin:0 0 12px;font-size:26px}p{color:#6f7973}.delete{width:100%;min-height:52px;margin-top:16px;border:0;border-radius:12px;background:#b83e3e;color:#fff;font:inherit;font-weight:800;cursor:pointer}.help{font-size:13px}</style></head><body><main class="card"><h1>공유 파일을 삭제할까요?</h1><p>삭제하면 다운로드 링크가 즉시 만료되며 복구할 수 없습니다.</p><form method="post" action="${action}"><button class="delete" type="submit">파일 영구 삭제</button></form><p class="help">취소하려면 이 화면을 닫아 주세요.</p></main></body></html>`);
   });

@@ -68,7 +68,7 @@
           android:layout_marginTop="1dp" android:text="가져온 사진이 없습니다" android:textColor="@color/text_secondary" android:textSize="11sp" />
       </LinearLayout>
       <Button android:id="@+id/downloadButton" android:layout_width="wrap_content" android:layout_height="42dp"
-        android:enabled="false" android:text="사진·알림장 저장" android:textAllCaps="false" android:textStyle="bold"
+        android:enabled="false" android:text="사진·영상·알림장 저장" android:textAllCaps="false" android:textStyle="bold"
         android:textColor="@color/white" android:backgroundTint="@color/panel" />
     </LinearLayout>
 
