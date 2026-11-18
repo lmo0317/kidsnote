@@ -91,7 +91,7 @@ function startVisitorAnalytics(app, options = {}) {
   });
 
   app.get('/analytics', (req, res) => {
-    res.redirect(302, 'https://minohlee.mooo.com/kidsnote/admin');
+    res.redirect(302, 'https://hjinlabs.com/kids/admin');
   });
 
   app.get('/api/analytics/summary', requireAdmin, (req, res) => {
